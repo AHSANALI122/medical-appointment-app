@@ -1,12 +1,16 @@
+from app.models.agent import AgentMessage, AgentSession
 from app.models.audit_log import AuditLog
 from app.models.booking import Booking
 from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation, DoctorProfile
+from app.models.feature_flag import FeatureFlag
+from app.models.followup import FollowUp
 from app.models.note import ClinicalNote, PatientNote
 from app.models.notification import Notification
 from app.models.reminder import ReminderLog
 from app.models.review import Review
 from app.models.taxonomy import SpecializationTaxonomy
 from app.models.user import PatientProfile, RefreshToken, User
+from app.models.waitlist import Waitlist
 
 __all__ = [
     "User",
@@ -24,4 +28,9 @@ __all__ = [
     "Review",
     "ReminderLog",
     "AuditLog",
+    "AgentSession",
+    "AgentMessage",
+    "Waitlist",
+    "FollowUp",
+    "FeatureFlag",
 ]

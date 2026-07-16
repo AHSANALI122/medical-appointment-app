@@ -71,3 +71,14 @@ def get_active_patient_profile(
     session: Session = Depends(get_session),
 ) -> PatientProfile:
     return resolve_self_patient_profile(session, user)
+
+
+def resolve_owned_patient_profile(session: Session, user: User, profile_id: uuid.UUID) -> PatientProfile:
+    """F20 family accounts: resolves *any* of the JWT-owned user's profiles
+    (self or a dependent), never a client-supplied profile outside that
+    set — same ownership-validation shape as `set_active_profile_tool`
+    (agents/tools.py) uses for the agent-side equivalent."""
+    profile = session.get(PatientProfile, profile_id)
+    if profile is None or profile.user_id != user.id:
+        raise ForbiddenError("that patient profile does not belong to you")
+    return profile

@@ -77,7 +77,8 @@ def rate_limit(tier: str, *, limit: int, window_seconds: int) -> Callable[[Reque
     return _dependency
 
 
-# Tiers, per F15: auth is strictest among currently-implemented endpoints
-# (chat will be strictest once F17 exists), booking is more permissive.
+# Tiers, per F15: chat is strictest of all (LLM calls are the most expensive
+# resource), auth next, booking most permissive.
 AUTH_RATE_LIMIT = ("auth", 10, 60)
 BOOKING_RATE_LIMIT = ("booking", 30, 60)
+CHAT_RATE_LIMIT = ("chat", 5, 60)

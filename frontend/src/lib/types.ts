@@ -199,3 +199,79 @@ export interface PlatformStatsRead {
   pending_reviews: number;
   approved_reviews: number;
 }
+
+// --- F17: multi-agent assistant ---------------------------------------
+
+export type AgentRole = "user" | "assistant" | "system" | "tool";
+
+export interface ChatSessionRead {
+  id: string;
+  active_patient_profile_id: string | null;
+  created_at: string;
+  last_activity_at: string;
+}
+
+export interface ChatMessageRead {
+  id: string;
+  role: AgentRole;
+  content: string;
+  agent_name: string | null;
+  created_at: string;
+}
+
+export interface ChatMessageResponse {
+  reply: string;
+  draft_booking: BookingRead | null;
+  emergency: boolean;
+}
+
+// --- F20: waitlist -------------------------------------------------------
+
+export type WaitlistStatus = "waiting" | "holding" | "expired" | "booked" | "cancelled";
+
+export interface WaitlistRead {
+  id: string;
+  doctor_id: string;
+  clinic_location_id: string;
+  start_time_utc: string;
+  end_time_utc: string;
+  position: number;
+  status: WaitlistStatus;
+  hold_booking_id: string | null;
+  joined_at: string;
+}
+
+// --- F20: follow-up --------------------------------------------------------
+
+export type FollowUpStatus = "scheduled" | "notified" | "deferred";
+
+export interface FollowUpRead {
+  id: string;
+  booking_id: string;
+  doctor_id: string;
+  patient_profile_id: string;
+  weeks: number;
+  target_date: string;
+  status: FollowUpStatus;
+  created_at: string;
+}
+
+// --- F20: AI visit summary --------------------------------------------------
+
+export interface VisitSummaryDraft {
+  chief_complaint: string;
+  assessment: string;
+  plan: string;
+}
+
+// --- F20: family accounts -----------------------------------------------
+
+export interface PatientProfileRead {
+  id: string;
+  user_id: string;
+  full_name: string;
+  relationship_label: string;
+  date_of_birth: string | null;
+  is_active: boolean;
+  created_at: string;
+}

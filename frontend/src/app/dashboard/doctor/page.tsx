@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, ClinicLocationRead, DoctorProfileRead, Page, Weekday } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClinicalNoteEditor, PatientNoteViewer } from "@/components/NoteWidgets";
+import { AIDraftHelper, FollowUpForm } from "@/components/DoctorSmartTools";
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
   { value: "mon", label: "Monday" },
@@ -24,6 +25,7 @@ export default function DoctorDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aiDrafts, setAiDrafts] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     const [profileRes, bookingsRes] = await Promise.all([
@@ -177,7 +179,18 @@ export default function DoctorDashboardPage() {
                 <p className="text-sm text-slate-500">{booking.address_snapshot}</p>
                 <PatientNoteViewer bookingId={booking.id} />
                 {(booking.status === "confirmed" || booking.status === "completed") && (
-                  <ClinicalNoteEditor bookingId={booking.id} />
+                  <>
+                    <ClinicalNoteEditor
+                      key={aiDrafts[booking.id] ?? `note-${booking.id}`}
+                      bookingId={booking.id}
+                      prefill={aiDrafts[booking.id]}
+                    />
+                    <AIDraftHelper
+                      bookingId={booking.id}
+                      onDraft={(text) => setAiDrafts((prev) => ({ ...prev, [booking.id]: text }))}
+                    />
+                    <FollowUpForm bookingId={booking.id} />
+                  </>
                 )}
               </div>
               {booking.status === "confirmed" && (

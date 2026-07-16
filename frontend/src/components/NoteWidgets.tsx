@@ -100,14 +100,18 @@ export function PatientNoteViewer({ bookingId }: { bookingId: string }) {
   );
 }
 
-/** Doctor's clinical note, private by default with a per-note share toggle (F6). */
-export function ClinicalNoteEditor({ bookingId }: { bookingId: string }) {
-  const [content, setContent] = useState("");
+/** Doctor's clinical note, private by default with a per-note share toggle (F6).
+ * `prefill` (F20 AI draft, HITL): seeds the textarea with an AI-generated
+ * draft the doctor still has to review/edit before saving — pass a fresh
+ * `key` from the caller when applying a new draft so this remounts and
+ * re-initializes `content` from the new prefill. */
+export function ClinicalNoteEditor({ bookingId, prefill }: { bookingId: string; prefill?: string }) {
+  const [content, setContent] = useState(prefill ?? "");
   const [shared, setShared] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(Boolean(prefill));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

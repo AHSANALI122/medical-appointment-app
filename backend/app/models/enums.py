@@ -49,6 +49,27 @@ class ReviewModerationStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class AgentRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    TOOL = "tool"
+
+
+class WaitlistStatus(StrEnum):
+    WAITING = "waiting"
+    HOLDING = "holding"
+    EXPIRED = "expired"
+    BOOKED = "booked"
+    CANCELLED = "cancelled"
+
+
+class FollowUpStatus(StrEnum):
+    SCHEDULED = "scheduled"
+    NOTIFIED = "notified"
+    DEFERRED = "deferred"
+
+
 class Weekday(StrEnum):
     MON = "mon"
     TUE = "tue"

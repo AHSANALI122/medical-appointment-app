@@ -38,6 +38,11 @@ export function Nav() {
               >
                 Dashboard
               </Link>
+              {user.role === "patient" && (
+                <Link href="/assistant" className="text-slate-600 hover:text-slate-900">
+                  Assistant
+                </Link>
+              )}
               <NotificationBell />
               <span className="text-slate-400">{user.full_name}</span>
               <button

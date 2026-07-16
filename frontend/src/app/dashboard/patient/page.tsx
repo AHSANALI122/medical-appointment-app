@@ -5,8 +5,11 @@ import { api, apiUrl, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, Page } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Countdown } from "@/components/Countdown";
 import { ClinicalNoteViewer, PatientNoteEditor } from "@/components/NoteWidgets";
 import { ReviewForm } from "@/components/ReviewForm";
+import { FamilyProfiles } from "@/components/FamilyProfiles";
+import { WaitlistPanel } from "@/components/WaitlistPanel";
 
 const CANCELLABLE: BookingRead["status"][] = ["pending", "confirmed"];
 
@@ -75,6 +78,19 @@ export default function PatientDashboardPage() {
     }
   }
 
+  async function handleConfirmDraft(bookingId: string) {
+    setActionError(null);
+    setCancellingId(bookingId);
+    try {
+      await api.post<BookingRead>(`/api/v1/bookings/${bookingId}/confirm`);
+      await loadBookings();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not confirm this booking.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
   if (authLoading || loading) {
     return <p className="text-slate-500">Loading…</p>;
   }
@@ -102,12 +118,29 @@ export default function PatientDashboardPage() {
                     doctor must respond by {new Date(booking.expires_at).toLocaleString()}
                   </span>
                 )}
+                {booking.status === "draft" && booking.expires_at && (
+                  <span className="text-xs text-amber-700">
+                    hold expires in <Countdown expiresAt={booking.expires_at} onExpire={loadBookings} />
+                  </span>
+                )}
+                {booking.source === "system_waitlist" && (
+                  <span className="text-xs text-teal-700">from waitlist</span>
+                )}
               </div>
               <p className="font-medium text-slate-900">
                 {new Date(booking.start_time_utc).toLocaleString()}
               </p>
               <p className="text-sm text-slate-500">{booking.address_snapshot}</p>
               <p className="text-sm text-slate-500">Fee: Rs. {booking.fee_charged}</p>
+              {booking.status === "draft" && (
+                <button
+                  onClick={() => handleConfirmDraft(booking.id)}
+                  disabled={cancellingId === booking.id}
+                  className="mt-2 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-60"
+                >
+                  {cancellingId === booking.id ? "Confirming…" : "Confirm appointment"}
+                </button>
+              )}
               {booking.status === "rejected" && booking.rejected_reason && (
                 <p className="mt-1 text-sm text-red-600">Reason: {booking.rejected_reason}</p>
               )}
@@ -133,6 +166,11 @@ export default function PatientDashboardPage() {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="mt-10 flex flex-col gap-8">
+        <WaitlistPanel />
+        <FamilyProfiles />
       </div>
     </div>
   );

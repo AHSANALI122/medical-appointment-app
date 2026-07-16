@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
@@ -9,9 +9,9 @@ from app.models.booking import Booking
 from app.models.doctor import ClinicLocation, DoctorProfile
 from app.models.enums import BookingSource, BookingStatus, CancelledBy, DoctorVerificationStatus
 from app.models.user import PatientProfile, User
-from app.services import notification_service
+from app.services import audit_service, notification_service
 from app.services.slot_service import MAX_HORIZON, MIN_LEAD_TIME
-from app.services.state_machine import BookingStateMachine
+from app.services.state_machine import DRAFT_TTL, BookingStateMachine
 
 
 def _validate_booking_window(start_time_utc: datetime) -> None:
@@ -31,6 +31,7 @@ def create_draft_booking(
     start_time_utc: datetime,
     end_time_utc: datetime,
     source: BookingSource = BookingSource.USER,
+    ttl: timedelta = DRAFT_TTL,
 ) -> Booking:
     _validate_booking_window(start_time_utc)
 
@@ -57,6 +58,7 @@ def create_draft_booking(
         fee_charged=doctor.consultation_fee,
         address_snapshot=address_snapshot,
         source=source,
+        ttl=ttl,
     )
 
 
@@ -78,6 +80,22 @@ def confirm_booking(session: Session, *, booking_id: uuid.UUID, patient_profile:
     booking = _get_owned_booking(session, booking_id, patient_profile)
     machine = BookingStateMachine(session)
     booking = machine.confirm(booking)
+
+    # F18 HITL acceptance: the explicit patient tap that turns a draft into
+    # a real request is audit-logged with confirmer + timestamp (AuditLog's
+    # own created_at), same append-only trail as clinical/patient notes.
+    audit_service.log(
+        session,
+        actor_user_id=patient_profile.user_id,
+        action="confirm",
+        resource_type="booking",
+        resource_id=booking.id,
+    )
+
+    if booking.source == BookingSource.SYSTEM_WAITLIST:
+        from app.services import waitlist_service  # deferred: avoids a circular import
+
+        waitlist_service.mark_booked(session, hold_booking_id=booking.id)
 
     doctor = session.get(DoctorProfile, booking.doctor_id)
     if doctor is not None:
@@ -111,6 +129,22 @@ def doctor_accept_booking(session: Session, *, booking_id: uuid.UUID, doctor: Do
     return booking
 
 
+def _promote_waitlist_for_freed_slot(session: Session, booking: Booking) -> None:
+    """F20 — a cancellation or rejection just freed this (doctor, location,
+    start_time) slot; hand it to the next FIFO waitlist entry, if any.
+    Deferred import to avoid a circular dependency (waitlist_service calls
+    back into this module to create the hold's draft booking)."""
+    from app.services import waitlist_service
+
+    waitlist_service.promote_next_in_line(
+        session,
+        doctor_id=booking.doctor_id,
+        clinic_location_id=booking.clinic_location_id,
+        start_time_utc=booking.start_time_utc,
+        end_time_utc=booking.end_time_utc,
+    )
+
+
 def doctor_reject_booking(
     session: Session, *, booking_id: uuid.UUID, doctor: DoctorProfile, reason: str
 ) -> Booking:
@@ -120,6 +154,7 @@ def doctor_reject_booking(
     _notify_patient(
         session, booking, title="Booking rejected", body=f"Your appointment request was declined: {reason}"
     )
+    _promote_waitlist_for_freed_slot(session, booking)
     return booking
 
 
@@ -148,6 +183,7 @@ def patient_cancel_booking(
             title="Booking cancelled",
             body=f"The patient cancelled their appointment: {reason}",
         )
+    _promote_waitlist_for_freed_slot(session, booking)
     return booking
 
 
@@ -165,6 +201,7 @@ def doctor_cancel_booking(
     _notify_patient(
         session, booking, title="Booking cancelled by doctor", body=f"Reason: {reason}"
     )
+    _promote_waitlist_for_freed_slot(session, booking)
     return booking
 
 

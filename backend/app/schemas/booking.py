@@ -11,6 +11,10 @@ class CreateDraftRequest(BaseModel):
     clinic_location_id: uuid.UUID
     start_time_utc: datetime
     end_time_utc: datetime
+    # F20 family accounts: book on behalf of a dependent profile instead of
+    # the caller's own 'self' profile. Must be owned by the JWT's user_id —
+    # validated server-side in the router, never trusted from this field alone.
+    patient_profile_id: uuid.UUID | None = None
 
 
 class RejectRequest(BaseModel):

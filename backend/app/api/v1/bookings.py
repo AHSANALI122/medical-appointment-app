@@ -11,6 +11,7 @@ from app.api.deps import (
     get_current_user,
     require_doctor,
     require_patient,
+    resolve_owned_patient_profile,
     resolve_self_patient_profile,
 )
 from app.core.db import get_session
@@ -19,6 +20,8 @@ from app.core.rate_limit import BOOKING_RATE_LIMIT, rate_limit
 from app.models.booking import Booking
 from app.models.enums import BookingStatus, UserRole
 from app.models.user import PatientProfile, User
+from app.agents.summary_agent import VisitSummaryDraft
+from app.schemas.ai_summary import AIDraftRequest
 from app.schemas.booking import (
     BookingRead,
     CancelRequest,
@@ -26,10 +29,20 @@ from app.schemas.booking import (
     DoctorDashboardRead,
     RejectRequest,
 )
+from app.schemas.followup import FollowUpCreate, FollowUpRead
 from app.schemas.note import ClinicalNoteRead, ClinicalNoteWrite, PatientNoteRead, PatientNoteWrite
 from app.schemas.pagination import Page, PageParams
 from app.schemas.review import ReviewCreate, ReviewRead
-from app.services import audit_service, booking_service, doctor_service, note_service, review_service
+from app.services import (
+    ai_summary_service,
+    audit_service,
+    booking_service,
+    doctor_service,
+    feature_flag_service,
+    followup_service,
+    note_service,
+    review_service,
+)
 
 router = APIRouter()
 
@@ -40,9 +53,17 @@ _booking_rate_limit = Depends(rate_limit(_tier, limit=_limit, window_seconds=_wi
 @router.post("", response_model=BookingRead, status_code=201, dependencies=[_booking_rate_limit])
 def create_draft(
     body: CreateDraftRequest,
-    patient_profile: PatientProfile = Depends(get_active_patient_profile),
+    user: User = Depends(require_patient),
     session: Session = Depends(get_session),
 ) -> BookingRead:
+    # F20 family accounts: an explicit patient_profile_id books on behalf of
+    # a dependent, ownership-checked against the JWT's user_id; omitting it
+    # defaults to the caller's own 'self' profile (pre-F20 behavior).
+    if body.patient_profile_id is not None:
+        patient_profile = resolve_owned_patient_profile(session, user, body.patient_profile_id)
+    else:
+        patient_profile = resolve_self_patient_profile(session, user)
+
     booking = booking_service.create_draft_booking(
         session,
         patient_profile=patient_profile,
@@ -223,6 +244,25 @@ def mark_no_show(
     return BookingRead.model_validate(booking, from_attributes=True)
 
 
+@router.post(
+    "/{booking_id}/follow-up",
+    response_model=FollowUpRead,
+    status_code=201,
+    dependencies=[Depends(feature_flag_service.require_feature(feature_flag_service.FOLLOWUP))],
+)
+def schedule_follow_up(
+    booking_id: uuid.UUID,
+    body: FollowUpCreate,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> FollowUpRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    follow_up = followup_service.schedule_follow_up(
+        session, booking_id=booking_id, doctor=doctor, weeks=body.weeks
+    )
+    return FollowUpRead.model_validate(follow_up, from_attributes=True)
+
+
 @router.put("/{booking_id}/patient-note", response_model=PatientNoteRead)
 def write_patient_note(
     booking_id: uuid.UUID,
@@ -257,6 +297,25 @@ def read_patient_note(
         raise ForbiddenError("not authorized to view this note")
     audit_service.log(session, actor_user_id=user.id, action="read", resource_type="patient_note", resource_id=note.id)
     return PatientNoteRead.model_validate(note, from_attributes=True)
+
+
+@router.post(
+    "/{booking_id}/clinical-note/ai-draft",
+    response_model=VisitSummaryDraft,
+    dependencies=[Depends(feature_flag_service.require_feature(feature_flag_service.AI_SUMMARY))],
+)
+async def generate_clinical_note_ai_draft(
+    booking_id: uuid.UUID,
+    body: AIDraftRequest,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> VisitSummaryDraft:
+    """HITL draft only — never saved. The doctor reviews/edits this
+    client-side and saves through PUT .../clinical-note like any other note."""
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    return await ai_summary_service.generate_visit_summary_draft(
+        session, booking_id=booking_id, doctor=doctor, rough_notes=body.rough_notes
+    )
 
 
 @router.put("/{booking_id}/clinical-note", response_model=ClinicalNoteRead)

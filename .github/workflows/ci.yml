@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medbook
+          POSTGRES_PASSWORD: medbook
+          POSTGRES_DB: medbook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medbook -d medbook"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://medbook:medbook@localhost:5432/medbook
+      JWT_SECRET: ci-only-not-a-real-secret
+      # Throwaway Fernet key, valid format only — required for EncryptedString
+      # columns to load at import time; never used outside CI test runs.
+      ENCRYPTION_KEY: sOyeA2Z9A26_msHUUldM93Ubl2ZwHnfE3D7Dcf11a-0=
+      ENVIRONMENT: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync
+      - name: Lint (ruff)
+        run: uv run ruff check .
+      - name: Test (CI-safe, excludes live_llm)
+        run: uv run pytest -m "not live_llm"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+
+# No deploy job yet: this repo has no linked Vercel/Railway project and no
+# deploy secrets configured. Once those are linked, add a `deploy` job here
+# gated on `github.ref == 'refs/heads/main'` that runs the Vercel/Railway CLI
+# release steps — migrations via Railway's release phase, per spec.md F16.
+#
+# Blocking merge on a red pipeline is a GitHub branch-protection setting
+# (Settings -> Branches -> Require status checks to pass), not something
+# this workflow file can itself enforce — turn that on for `main` once this
+# workflow has run at least once.

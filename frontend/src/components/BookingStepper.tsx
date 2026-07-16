@@ -8,6 +8,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, ClinicLocationRead, DoctorProfileRead, Page, ReviewRead, SlotRead } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
+import { useFamilyProfiles } from "@/components/FamilyProfiles";
 
 type Step = "slot" | "review" | "draft" | "confirmed";
 
@@ -32,6 +33,9 @@ export function BookingStepper({ doctorId }: { doctorId: string }) {
   const [draft, setDraft] = useState<BookingRead | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const familyProfiles = useFamilyProfiles();
+  const [bookingForProfileId, setBookingForProfileId] = useState<string>("");
 
   useEffect(() => {
     api
@@ -81,6 +85,7 @@ export function BookingStepper({ doctorId }: { doctorId: string }) {
         clinic_location_id: selectedSlot.clinic_location_id,
         start_time_utc: selectedSlot.start_time_utc,
         end_time_utc: selectedSlot.end_time_utc,
+        patient_profile_id: bookingForProfileId || undefined,
       });
       setDraft(booking);
       setStep("draft");
@@ -250,6 +255,22 @@ export function BookingStepper({ doctorId }: { doctorId: string }) {
                     <dd className="font-medium text-teal-700">Rs. {doctor.consultation_fee}</dd>
                   </div>
                 </dl>
+                {familyProfiles.length > 1 && (
+                  <div className="mb-4">
+                    <label className="mb-1 block text-sm text-slate-500">Booking for</label>
+                    <select
+                      value={bookingForProfileId}
+                      onChange={(e) => setBookingForProfileId(e.target.value)}
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      {familyProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.relationship_label === "self" ? "Myself" : `${p.full_name} (${p.relationship_label})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {actionError && <p className="mb-3 text-sm text-red-600">{actionError}</p>}
                 <div className="flex gap-3">
                   <button

@@ -12,9 +12,9 @@ from sqlmodel import Session, select
 from app.core.logging import get_logger
 from app.core.timezone import now_utc
 from app.models.booking import Booking
-from app.models.enums import BookingStatus
+from app.models.enums import BookingSource, BookingStatus
 from app.models.user import PatientProfile
-from app.services import notification_service
+from app.services import notification_service, waitlist_service
 from app.services.state_machine import BookingStateMachine
 
 logger = get_logger(__name__)
@@ -34,6 +34,7 @@ def sweep_expired_bookings(session: Session) -> int:
     expired_count = 0
     for booking in candidates:
         was_pending = booking.status == BookingStatus.PENDING
+        was_waitlist_hold = booking.source == BookingSource.SYSTEM_WAITLIST
         machine.expire(booking)
         expired_count += 1
         logger.info("booking.expired", booking_id=str(booking.id), was_pending=was_pending)
@@ -48,5 +49,18 @@ def sweep_expired_bookings(session: Session) -> int:
                     title="Booking request expired",
                     body="The doctor did not respond in time. Please try another slot or doctor.",
                 )
+
+        if was_waitlist_hold:
+            # F20 — an unclaimed waitlist hold expiring hands the slot to
+            # the next person in line, cascading until someone claims it or
+            # the queue is empty.
+            waitlist_service.mark_expired(session, hold_booking_id=booking.id)
+            waitlist_service.promote_next_in_line(
+                session,
+                doctor_id=booking.doctor_id,
+                clinic_location_id=booking.clinic_location_id,
+                start_time_utc=booking.start_time_utc,
+                end_time_utc=booking.end_time_utc,
+            )
 
     return expired_count

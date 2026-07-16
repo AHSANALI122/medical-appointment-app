@@ -20,6 +20,7 @@ from app.models.doctor import DoctorProfile
 from app.models.enums import BookingSource, BookingStatus, CancelledBy
 
 DRAFT_TTL = timedelta(minutes=10)
+WAITLIST_HOLD_TTL = timedelta(minutes=15)
 PENDING_MAX_TTL = timedelta(hours=24)
 PENDING_MIN_LEAD = timedelta(hours=2)
 MAX_ACTIVE_DRAFTS_PER_PROFILE = 3
@@ -77,6 +78,7 @@ class BookingStateMachine:
         fee_charged: int,
         address_snapshot: str,
         source: BookingSource = BookingSource.USER,
+        ttl: timedelta = DRAFT_TTL,
     ) -> Booking:
         idempotency_key = f"{patient_profile_id}:{doctor_id}:{start_time_utc.isoformat()}"
 
@@ -99,7 +101,7 @@ class BookingStateMachine:
             source=source,
             fee_charged=fee_charged,
             address_snapshot=address_snapshot,
-            expires_at=now_utc() + DRAFT_TTL,
+            expires_at=now_utc() + ttl,
             idempotency_key=idempotency_key,
         )
         self.session.add(booking)

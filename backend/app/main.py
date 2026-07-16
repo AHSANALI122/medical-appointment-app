@@ -17,8 +17,9 @@ from app.core.logging import configure_logging, get_logger
 from app.core.request_context import RequestIDMiddleware, get_request_id
 from app.jobs.completion_sweep import sweep_completed_bookings
 from app.jobs.expiry_sweep import sweep_expired_bookings
+from app.jobs.followup_sweep import run_followup_sweep
 from app.jobs.reminders import send_due_reminders
-from app.llm.client import get_llm_health
+from app.llm.client import configure_tracing, get_llm_health
 
 configure_logging()
 logger = get_logger(__name__)
@@ -26,6 +27,8 @@ settings = get_settings()
 
 if settings.sentry_dsn:
     sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.1)
+
+configure_tracing()
 
 scheduler = AsyncIOScheduler()
 
@@ -51,11 +54,17 @@ def _run_completion_sweep() -> None:
             logger.info("completion_sweep.completed", completed_count=count)
 
 
+def _run_followup_sweep() -> None:
+    with Session(engine) as session:
+        run_followup_sweep(session)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(_run_expiry_sweep, "interval", seconds=60, id="expiry_sweep")
     scheduler.add_job(_run_reminder_sweep, "interval", minutes=5, id="reminder_sweep")
     scheduler.add_job(_run_completion_sweep, "interval", minutes=15, id="completion_sweep")
+    scheduler.add_job(_run_followup_sweep, "interval", hours=24, id="followup_sweep")
     scheduler.start()
     logger.info("app.startup", environment=settings.environment)
     yield
