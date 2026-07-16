@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { BookingRead, ClinicLocationRead, DoctorProfileRead, SlotRead } from "@/lib/types";
+import type { BookingRead, ClinicLocationRead, DoctorProfileRead, Page, ReviewRead, SlotRead } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
 
 type Step = "slot" | "review" | "draft" | "confirmed";
@@ -137,10 +137,18 @@ export function BookingStepper({ doctorId }: { doctorId: string }) {
             ) : (
               <span className="text-xs text-amber-600">Verification pending</span>
             )}
+            {doctor.review_count > 0 && (
+              <p className="mt-1 text-sm text-slate-600">
+                ★ {doctor.average_rating?.toFixed(1)}{" "}
+                <span className="text-slate-400">({doctor.review_count} reviews)</span>
+              </p>
+            )}
           </div>
         </div>
         {doctor.bio && <p className="mt-4 text-sm text-slate-600">{doctor.bio}</p>}
       </div>
+
+      <DoctorReviews doctorId={doctorId} />
 
       {doctor.verification_status !== "verified" ? (
         <p className="text-slate-500">This doctor is not currently accepting bookings.</p>
@@ -331,6 +339,40 @@ export function BookingStepper({ doctorId }: { doctorId: string }) {
           </AnimatePresence>
         </div>
       )}
+    </div>
+  );
+}
+
+function DoctorReviews({ doctorId }: { doctorId: string }) {
+  const [reviews, setReviews] = useState<ReviewRead[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api
+      .get<Page<ReviewRead>>(`/api/v1/doctors/${doctorId}/reviews?page=1&page_size=10`)
+      .then((res) => setReviews(res.items))
+      .finally(() => setLoading(false));
+  }, [doctorId]);
+
+  if (loading || reviews.length === 0) return null;
+
+  return (
+    <div className="mb-8 rounded-lg border border-slate-200 bg-white p-6">
+      <h2 className="mb-4 text-lg font-semibold">Patient reviews</h2>
+      <div className="flex flex-col gap-4">
+        {reviews.map((review) => (
+          <div key={review.id} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
+            <p className="font-medium">★ {review.rating} / 5</p>
+            {review.comment && <p className="mt-1 text-sm text-slate-600">{review.comment}</p>}
+            {review.doctor_reply && (
+              <p className="mt-2 rounded-md bg-slate-50 p-2 text-sm text-slate-600">
+                <span className="font-medium">Doctor&apos;s reply: </span>
+                {review.doctor_reply}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

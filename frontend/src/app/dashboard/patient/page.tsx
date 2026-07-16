@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, Page } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClinicalNoteViewer, PatientNoteEditor } from "@/components/NoteWidgets";
+import { ReviewForm } from "@/components/ReviewForm";
 
 const CANCELLABLE: BookingRead["status"][] = ["pending", "confirmed"];
 
@@ -119,6 +120,7 @@ export default function PatientDashboardPage() {
               {(booking.status === "confirmed" || booking.status === "completed") && (
                 <ClinicalNoteViewer bookingId={booking.id} />
               )}
+              {booking.status === "completed" && <ReviewForm bookingId={booking.id} />}
             </div>
             {CANCELLABLE.includes(booking.status) && (
               <button

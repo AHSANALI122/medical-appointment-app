@@ -19,6 +19,39 @@ from app.models.user import PatientProfile, User
 settings = get_settings()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The in-memory rate limiter (core/rate_limit.py) is a process-global
+    singleton keyed by client IP, and TestClient's IP is always
+    'testclient' — without this, unrelated tests across the whole suite
+    would trip each other's 429s just by running in the same 60s window."""
+    from app.core.rate_limit import get_rate_limiter
+
+    get_rate_limiter().reset()
+    yield
+
+
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+class CSRFAwareTestClient(TestClient):
+    """Mirrors what the real frontend does (api.ts echoes the non-httponly
+    csrf_token cookie back as X-CSRF-Token on mutating requests) so the vast
+    majority of tests — which exercise application behavior, not CSRF itself
+    — don't need to know the double-submit protocol exists. test_security.py
+    uses a plain TestClient to prove the protection actually rejects a
+    request that skips this step."""
+
+    def request(self, method, url, **kwargs):
+        if method.upper() in _MUTATING_METHODS:
+            csrf_token = self.cookies.get("csrf_token")
+            if csrf_token:
+                headers = dict(kwargs.get("headers") or {})
+                headers.setdefault("X-CSRF-Token", csrf_token)
+                kwargs["headers"] = headers
+        return super().request(method, url, **kwargs)
+
+
 def _test_database_url() -> str:
     base = settings.database_url
     assert base.rsplit("/", 1)[-1] != "", "DATABASE_URL must include a database name"
@@ -63,7 +96,7 @@ def client(test_engine, session: Session) -> Generator[TestClient, None, None]:
         yield session
 
     app.dependency_overrides[get_session] = _override_get_session
-    with TestClient(app) as c:
+    with CSRFAwareTestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
 
@@ -81,7 +114,7 @@ def client_factory(test_engine, session: Session) -> Generator[callable, None, N
     clients: list[TestClient] = []
 
     def _make() -> TestClient:
-        c = TestClient(app)
+        c = CSRFAwareTestClient(app)
         clients.append(c)
         return c
 

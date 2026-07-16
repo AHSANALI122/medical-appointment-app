@@ -15,18 +15,29 @@ from app.api.deps import (
 )
 from app.core.db import get_session
 from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.rate_limit import BOOKING_RATE_LIMIT, rate_limit
 from app.models.booking import Booking
 from app.models.enums import BookingStatus, UserRole
 from app.models.user import PatientProfile, User
-from app.schemas.booking import BookingRead, CancelRequest, CreateDraftRequest, RejectRequest
+from app.schemas.booking import (
+    BookingRead,
+    CancelRequest,
+    CreateDraftRequest,
+    DoctorDashboardRead,
+    RejectRequest,
+)
 from app.schemas.note import ClinicalNoteRead, ClinicalNoteWrite, PatientNoteRead, PatientNoteWrite
 from app.schemas.pagination import Page, PageParams
-from app.services import booking_service, doctor_service, note_service
+from app.schemas.review import ReviewCreate, ReviewRead
+from app.services import audit_service, booking_service, doctor_service, note_service, review_service
 
 router = APIRouter()
 
+_tier, _limit, _window = BOOKING_RATE_LIMIT
+_booking_rate_limit = Depends(rate_limit(_tier, limit=_limit, window_seconds=_window))
 
-@router.post("", response_model=BookingRead, status_code=201)
+
+@router.post("", response_model=BookingRead, status_code=201, dependencies=[_booking_rate_limit])
 def create_draft(
     body: CreateDraftRequest,
     patient_profile: PatientProfile = Depends(get_active_patient_profile),
@@ -80,6 +91,33 @@ def list_doctor_bookings(
     )
 
 
+@router.get("/doctor/dashboard", response_model=DoctorDashboardRead)
+def get_doctor_dashboard(
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> DoctorDashboardRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    dashboard = booking_service.get_doctor_dashboard(session, doctor=doctor)
+    return DoctorDashboardRead(
+        today=[BookingRead.model_validate(b, from_attributes=True) for b in dashboard["today"]],
+        upcoming=[BookingRead.model_validate(b, from_attributes=True) for b in dashboard["upcoming"]],
+        pending=[BookingRead.model_validate(b, from_attributes=True) for b in dashboard["pending"]],
+    )
+
+
+@router.get("/doctor/{booking_id}", response_model=BookingRead)
+def get_doctor_booking(
+    booking_id: uuid.UUID,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> BookingRead:
+    """Row-level auth acceptance test (F13): doctor A requesting doctor B's
+    booking gets 403, not 404 — see get_doctor_booking_or_403's docstring."""
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    booking = booking_service.get_doctor_booking_or_403(session, booking_id=booking_id, doctor=doctor)
+    return BookingRead.model_validate(booking, from_attributes=True)
+
+
 @router.get("/{booking_id}", response_model=BookingRead)
 def get_booking(
     booking_id: uuid.UUID,
@@ -101,7 +139,7 @@ def get_booking(
     return BookingRead.model_validate(booking, from_attributes=True)
 
 
-@router.post("/{booking_id}/confirm", response_model=BookingRead)
+@router.post("/{booking_id}/confirm", response_model=BookingRead, dependencies=[_booking_rate_limit])
 def confirm_booking(
     booking_id: uuid.UUID,
     patient_profile: PatientProfile = Depends(get_active_patient_profile),
@@ -163,6 +201,28 @@ def doctor_cancel_booking(
     return BookingRead.model_validate(booking, from_attributes=True)
 
 
+@router.post("/{booking_id}/complete", response_model=BookingRead)
+def complete_booking(
+    booking_id: uuid.UUID,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> BookingRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    booking = booking_service.doctor_mark_completed(session, booking_id=booking_id, doctor=doctor)
+    return BookingRead.model_validate(booking, from_attributes=True)
+
+
+@router.post("/{booking_id}/no-show", response_model=BookingRead)
+def mark_no_show(
+    booking_id: uuid.UUID,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> BookingRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    booking = booking_service.doctor_mark_no_show(session, booking_id=booking_id, doctor=doctor)
+    return BookingRead.model_validate(booking, from_attributes=True)
+
+
 @router.put("/{booking_id}/patient-note", response_model=PatientNoteRead)
 def write_patient_note(
     booking_id: uuid.UUID,
@@ -172,6 +232,9 @@ def write_patient_note(
 ) -> PatientNoteRead:
     note = note_service.upsert_patient_note(
         session, booking_id=booking_id, patient_profile=patient_profile, content=body.content
+    )
+    audit_service.log(
+        session, actor_user_id=patient_profile.user_id, action="write", resource_type="patient_note", resource_id=note.id
     )
     return PatientNoteRead.model_validate(note, from_attributes=True)
 
@@ -192,6 +255,7 @@ def read_patient_note(
         )
     else:
         raise ForbiddenError("not authorized to view this note")
+    audit_service.log(session, actor_user_id=user.id, action="read", resource_type="patient_note", resource_id=note.id)
     return PatientNoteRead.model_validate(note, from_attributes=True)
 
 
@@ -209,6 +273,9 @@ def write_clinical_note(
         doctor=doctor,
         content=body.content,
         is_shared_with_patient=body.is_shared_with_patient,
+    )
+    audit_service.log(
+        session, actor_user_id=user.id, action="write", resource_type="clinical_note", resource_id=note.id
     )
     return ClinicalNoteRead.model_validate(note, from_attributes=True)
 
@@ -229,7 +296,37 @@ def read_clinical_note(
         )
     else:
         raise ForbiddenError("not authorized to view this note")
+    audit_service.log(session, actor_user_id=user.id, action="read", resource_type="clinical_note", resource_id=note.id)
     return ClinicalNoteRead.model_validate(note, from_attributes=True)
+
+
+@router.post("/{booking_id}/review", response_model=ReviewRead, status_code=201)
+def create_review(
+    booking_id: uuid.UUID,
+    body: ReviewCreate,
+    patient_profile: PatientProfile = Depends(get_active_patient_profile),
+    session: Session = Depends(get_session),
+) -> ReviewRead:
+    review = review_service.create_review(
+        session,
+        booking_id=booking_id,
+        patient_profile=patient_profile,
+        rating=body.rating,
+        comment=body.comment,
+    )
+    return ReviewRead.model_validate(review, from_attributes=True)
+
+
+@router.get("/{booking_id}/review", response_model=ReviewRead | None)
+def get_my_review(
+    booking_id: uuid.UUID,
+    patient_profile: PatientProfile = Depends(get_active_patient_profile),
+    session: Session = Depends(get_session),
+) -> ReviewRead | None:
+    review = review_service.get_review_for_booking_owner(
+        session, booking_id=booking_id, patient_profile=patient_profile
+    )
+    return ReviewRead.model_validate(review, from_attributes=True) if review else None
 
 
 @router.get("/me/stream")

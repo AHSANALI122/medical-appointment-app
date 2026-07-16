@@ -43,6 +43,12 @@ class CancelledBy(StrEnum):
     ADMIN = "admin"
 
 
+class ReviewModerationStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class Weekday(StrEnum):
     MON = "mon"
     TUE = "tue"

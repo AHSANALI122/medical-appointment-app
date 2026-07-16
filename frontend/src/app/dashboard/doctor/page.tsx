@@ -83,6 +83,32 @@ export default function DoctorDashboardPage() {
     }
   }
 
+  async function handleComplete(id: string) {
+    setActionError(null);
+    setBusyId(id);
+    try {
+      await api.post(`/api/v1/bookings/${id}/complete`);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not mark this booking completed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleNoShow(id: string) {
+    setActionError(null);
+    setBusyId(id);
+    try {
+      await api.post(`/api/v1/bookings/${id}/no-show`);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not mark this booking as a no-show.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (authLoading || loading || !profile) {
     return <p className="text-slate-500">Loading…</p>;
   }
@@ -155,13 +181,29 @@ export default function DoctorDashboardPage() {
                 )}
               </div>
               {booking.status === "confirmed" && (
-                <button
-                  onClick={() => handleCancel(booking.id)}
-                  disabled={busyId === booking.id}
-                  className="shrink-0 rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    onClick={() => handleComplete(booking.id)}
+                    disabled={busyId === booking.id}
+                    className="rounded-md border border-teal-300 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-60"
+                  >
+                    Mark completed
+                  </button>
+                  <button
+                    onClick={() => handleNoShow(booking.id)}
+                    disabled={busyId === booking.id}
+                    className="rounded-md border border-orange-300 px-3 py-1.5 text-sm text-orange-700 hover:bg-orange-50 disabled:opacity-60"
+                  >
+                    No-show
+                  </button>
+                  <button
+                    onClick={() => handleCancel(booking.id)}
+                    disabled={busyId === booking.id}
+                    className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
               )}
             </div>
           ))}

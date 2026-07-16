@@ -113,6 +113,71 @@ def add_availability_rule(
     return rule
 
 
+def _get_owned_rule(session: Session, doctor_id: uuid.UUID, rule_id: uuid.UUID) -> AvailabilityRule:
+    rule = session.get(AvailabilityRule, rule_id)
+    if rule is None or rule.doctor_id != doctor_id:
+        raise NotFoundError("availability rule not found")
+    return rule
+
+
+def update_availability_rule(
+    session: Session,
+    *,
+    doctor_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    start_time_local=None,
+    end_time_local=None,
+    slot_duration_minutes: int | None = None,
+    is_active: bool | None = None,
+) -> AvailabilityRule:
+    rule = _get_owned_rule(session, doctor_id, rule_id)
+    if start_time_local is not None:
+        rule.start_time_local = start_time_local
+    if end_time_local is not None:
+        rule.end_time_local = end_time_local
+    if slot_duration_minutes is not None:
+        rule.slot_duration_minutes = slot_duration_minutes
+    if is_active is not None:
+        rule.is_active = is_active
+    session.add(rule)
+    session.commit()
+    session.refresh(rule)
+    return rule
+
+
+def delete_availability_rule(session: Session, *, doctor_id: uuid.UUID, rule_id: uuid.UUID) -> None:
+    rule = _get_owned_rule(session, doctor_id, rule_id)
+    session.delete(rule)
+    session.commit()
+
+
+def list_availability_rules(session: Session, doctor_id: uuid.UUID) -> list[AvailabilityRule]:
+    return list(
+        session.exec(select(AvailabilityRule).where(AvailabilityRule.doctor_id == doctor_id)).all()
+    )
+
+
+def list_availability_exceptions(session: Session, doctor_id: uuid.UUID) -> list[AvailabilityException]:
+    return list(
+        session.exec(
+            select(AvailabilityException).where(AvailabilityException.doctor_id == doctor_id)
+        ).all()
+    )
+
+
+def delete_availability_exception(
+    session: Session, *, doctor_id: uuid.UUID, exception_id: uuid.UUID
+) -> None:
+    """Ends a leave/holiday early (F13 leave management) — the affected-bookings
+    auto-flag flow for *newly added* leave belongs to F3 slot generation and
+    isn't re-triggered by removing one."""
+    exception = session.get(AvailabilityException, exception_id)
+    if exception is None or exception.doctor_id != doctor_id:
+        raise NotFoundError("availability exception not found")
+    session.delete(exception)
+    session.commit()
+
+
 def add_availability_exception(
     session: Session,
     *,

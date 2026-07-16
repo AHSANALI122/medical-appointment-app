@@ -47,3 +47,8 @@ class ForbiddenError(MedBookError):
 class ValidationAppError(MedBookError):
     error_code = "validation_error"
     status_code = 422
+
+
+class RateLimitExceededError(MedBookError):
+    error_code = "rate_limit_exceeded"
+    status_code = 429

@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { NotificationBell } from "@/components/NotificationBell";
+
+const DASHBOARD_PATH: Record<string, string> = {
+  doctor: "/dashboard/doctor",
+  admin: "/dashboard/admin",
+};
 
 export function Nav() {
   const { user, loading, logout } = useAuth();
@@ -27,11 +33,12 @@ export function Nav() {
           {loading ? null : user ? (
             <>
               <Link
-                href={user.role === "doctor" ? "/dashboard/doctor" : "/dashboard/patient"}
+                href={DASHBOARD_PATH[user.role] ?? "/dashboard/patient"}
                 className="text-slate-600 hover:text-slate-900"
               >
                 Dashboard
               </Link>
+              <NotificationBell />
               <span className="text-slate-400">{user.full_name}</span>
               <button
                 onClick={handleLogout}

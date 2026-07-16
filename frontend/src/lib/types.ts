@@ -58,6 +58,8 @@ export interface DoctorProfileRead {
   verification_status: DoctorVerificationStatus;
   cancellation_policy_hours: number;
   clinic_locations: ClinicLocationRead[];
+  average_rating: number | null;
+  review_count: number;
 }
 
 export interface DoctorSearchResult {
@@ -68,6 +70,8 @@ export interface DoctorSearchResult {
   cities: string[];
   photo_url: string | null;
   next_available_slot_utc: string | null;
+  average_rating: number | null;
+  review_count: number;
 }
 
 export type DoctorSortOrder = "name" | "fee_asc" | "fee_desc";
@@ -133,4 +137,65 @@ export interface Page<T> {
   page: number;
   page_size: number;
   total: number;
+}
+
+export type ReviewModerationStatus = "pending" | "approved" | "rejected";
+
+export interface ReviewRead {
+  id: string;
+  booking_id: string;
+  doctor_id: string;
+  patient_profile_id: string;
+  rating: number;
+  comment: string | null;
+  moderation_status: ReviewModerationStatus;
+  moderation_reason: string | null;
+  doctor_reply: string | null;
+  doctor_replied_at: string | null;
+  created_at: string;
+}
+
+export type NotificationChannel = "in_app" | "email" | "sms";
+export type NotificationStatus = "pending" | "sent" | "failed";
+
+export interface NotificationRead {
+  id: string;
+  booking_id: string | null;
+  channel: NotificationChannel;
+  status: NotificationStatus;
+  title: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface UnreadCountRead {
+  unread_count: number;
+}
+
+export interface DoctorDashboardRead {
+  today: BookingRead[];
+  upcoming: BookingRead[];
+  pending: BookingRead[];
+}
+
+export interface DoctorVerificationQueueItem {
+  id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  pmc_number: string;
+  specialization_id: string;
+  verification_status: DoctorVerificationStatus;
+}
+
+export interface PlatformStatsRead {
+  patients: number;
+  doctors: number;
+  doctors_unverified: number;
+  doctors_verified: number;
+  doctors_rejected: number;
+  bookings_by_status: Record<string, number>;
+  pending_reviews: number;
+  approved_reviews: number;
 }

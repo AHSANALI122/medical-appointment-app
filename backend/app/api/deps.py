@@ -12,6 +12,8 @@ from app.models.user import PatientProfile, User
 
 ACCESS_COOKIE_NAME = "access_token"
 REFRESH_COOKIE_NAME = "refresh_token"
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
 
 
 def get_current_user(

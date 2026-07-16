@@ -8,10 +8,12 @@ requires for the SMS gateway).
 
 import uuid
 
-from sqlmodel import Session
+from sqlmodel import Session, func, select
 
 from app.core.config import get_settings
+from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
+from app.core.timezone import now_utc
 from app.models.booking import Booking
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.user import User
@@ -62,3 +64,61 @@ def notify_user(
         )
 
     session.commit()
+
+
+# ---- notification center (F12) --------------------------------------------
+
+
+def list_notifications(
+    session: Session, *, user_id: uuid.UUID, unread_only: bool, offset: int, limit: int
+) -> tuple[list[Notification], int]:
+    # The in-app feed is the notification center's source of truth; email
+    # rows exist for delivery bookkeeping, not for the bell/list UI.
+    query = select(Notification).where(
+        Notification.user_id == user_id, Notification.channel == NotificationChannel.IN_APP
+    )
+    if unread_only:
+        query = query.where(Notification.read_at.is_(None))
+
+    total = session.exec(select(func.count()).select_from(query.with_only_columns(Notification.id).subquery())).one()
+    query = query.order_by(Notification.created_at.desc()).offset(offset).limit(limit)
+    return list(session.exec(query).all()), total
+
+
+def unread_count(session: Session, *, user_id: uuid.UUID) -> int:
+    return session.exec(
+        select(func.count()).where(
+            Notification.user_id == user_id,
+            Notification.channel == NotificationChannel.IN_APP,
+            Notification.read_at.is_(None),
+        )
+    ).one()
+
+
+def mark_read(session: Session, *, notification_id: uuid.UUID, user_id: uuid.UUID) -> Notification:
+    notification = session.get(Notification, notification_id)
+    if notification is None or notification.user_id != user_id:
+        raise NotFoundError("notification not found")
+
+    if notification.read_at is None:
+        notification.read_at = now_utc()
+        session.add(notification)
+        session.commit()
+        session.refresh(notification)
+    return notification
+
+
+def mark_all_read(session: Session, *, user_id: uuid.UUID) -> int:
+    unread = session.exec(
+        select(Notification).where(
+            Notification.user_id == user_id,
+            Notification.channel == NotificationChannel.IN_APP,
+            Notification.read_at.is_(None),
+        )
+    ).all()
+    now = now_utc()
+    for notification in unread:
+        notification.read_at = now
+        session.add(notification)
+    session.commit()
+    return len(unread)

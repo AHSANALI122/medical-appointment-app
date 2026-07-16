@@ -14,6 +14,7 @@ from app.schemas.doctor import (
     AvailabilityExceptionRead,
     AvailabilityRuleCreate,
     AvailabilityRuleRead,
+    AvailabilityRuleUpdate,
     ClinicLocationCreate,
     ClinicLocationRead,
     ClinicLocationUpdate,
@@ -24,7 +25,8 @@ from app.schemas.doctor import (
     SpecializationRead,
 )
 from app.schemas.pagination import Page, PageParams
-from app.services import doctor_service
+from app.schemas.review import ReviewRead
+from app.services import doctor_service, review_service
 from app.services.doctor_service import DoctorSortOrder
 from app.services.slot_service import MAX_HORIZON, generate_available_slots, next_available_slot_for_doctor
 
@@ -72,6 +74,7 @@ def search_doctors(
     for doctor in doctors:
         user = session.get(User, doctor.user_id)
         locations = doctor_service.list_clinic_locations(session, doctor.id)
+        avg_rating, review_count = review_service.get_doctor_rating_summary(session, doctor_id=doctor.id)
         results.append(
             DoctorSearchResult(
                 id=doctor.id,
@@ -83,9 +86,29 @@ def search_doctors(
                 # Computed only for this page's rows (bounded by page_size),
                 # never across the full doctor corpus — see slot_service.
                 next_available_slot_utc=next_available_slot_for_doctor(session, doctor_id=doctor.id),
+                average_rating=avg_rating,
+                review_count=review_count,
             )
         )
     return Page.create(results, page=params.page, page_size=params.page_size, total=total)
+
+
+@router.get("/{doctor_id}/reviews", response_model=Page[ReviewRead])
+def list_doctor_reviews(
+    doctor_id: uuid.UUID,
+    params: PageParams = Depends(),
+    session: Session = Depends(get_session),
+) -> Page[ReviewRead]:
+    doctor_service.get_doctor_profile_or_404(session, doctor_id)
+    reviews, total = review_service.list_public_doctor_reviews(
+        session, doctor_id=doctor_id, offset=params.offset, limit=params.page_size
+    )
+    return Page.create(
+        [ReviewRead.model_validate(r, from_attributes=True) for r in reviews],
+        page=params.page,
+        page_size=params.page_size,
+        total=total,
+    )
 
 
 @router.get("/me", response_model=DoctorProfileRead)
@@ -177,6 +200,64 @@ def add_availability_rule(
     return AvailabilityRuleRead.model_validate(rule, from_attributes=True)
 
 
+@router.get("/me/availability-rules", response_model=list[AvailabilityRuleRead])
+def list_my_availability_rules(
+    user: User = Depends(require_doctor), session: Session = Depends(get_session)
+) -> list[AvailabilityRuleRead]:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    rules = doctor_service.list_availability_rules(session, doctor.id)
+    return [AvailabilityRuleRead.model_validate(r, from_attributes=True) for r in rules]
+
+
+@router.patch("/me/availability-rules/{rule_id}", response_model=AvailabilityRuleRead)
+def update_my_availability_rule(
+    rule_id: uuid.UUID,
+    body: AvailabilityRuleUpdate,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> AvailabilityRuleRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    rule = doctor_service.update_availability_rule(
+        session,
+        doctor_id=doctor.id,
+        rule_id=rule_id,
+        start_time_local=body.start_time_local,
+        end_time_local=body.end_time_local,
+        slot_duration_minutes=body.slot_duration_minutes,
+        is_active=body.is_active,
+    )
+    return AvailabilityRuleRead.model_validate(rule, from_attributes=True)
+
+
+@router.delete("/me/availability-rules/{rule_id}", status_code=204)
+def delete_my_availability_rule(
+    rule_id: uuid.UUID,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> None:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    doctor_service.delete_availability_rule(session, doctor_id=doctor.id, rule_id=rule_id)
+
+
+@router.get("/me/availability-exceptions", response_model=list[AvailabilityExceptionRead])
+def list_my_availability_exceptions(
+    user: User = Depends(require_doctor), session: Session = Depends(get_session)
+) -> list[AvailabilityExceptionRead]:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    exceptions = doctor_service.list_availability_exceptions(session, doctor.id)
+    return [AvailabilityExceptionRead.model_validate(e, from_attributes=True) for e in exceptions]
+
+
+@router.delete("/me/availability-exceptions/{exception_id}", status_code=204)
+def delete_my_availability_exception(
+    exception_id: uuid.UUID,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> None:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    doctor_service.delete_availability_exception(session, doctor_id=doctor.id, exception_id=exception_id)
+
+
 @router.post("/me/availability-exceptions", response_model=AvailabilityExceptionRead, status_code=201)
 def add_availability_exception(
     body: AvailabilityExceptionCreate,
@@ -225,6 +306,7 @@ def get_doctor_slots(
 
 def _doctor_profile_read(session: Session, doctor, user: User | None) -> DoctorProfileRead:
     locations = doctor_service.list_clinic_locations(session, doctor.id)
+    avg_rating, review_count = review_service.get_doctor_rating_summary(session, doctor_id=doctor.id)
     return DoctorProfileRead(
         id=doctor.id,
         user_id=doctor.user_id,
@@ -237,4 +319,6 @@ def _doctor_profile_read(session: Session, doctor, user: User | None) -> DoctorP
         verification_status=doctor.verification_status,
         cancellation_policy_hours=doctor.cancellation_policy_hours,
         clinic_locations=[ClinicLocationRead.model_validate(loc, from_attributes=True) for loc in locations],
+        average_rating=avg_rating,
+        review_count=review_count,
     )

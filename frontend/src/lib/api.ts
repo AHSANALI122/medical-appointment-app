@@ -1,5 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export class ApiError extends Error {
   errorCode: string;
   requestId: string;
@@ -13,14 +15,31 @@ export class ApiError extends Error {
   }
 }
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+
+  // Double-submit CSRF (F15): the backend issues a non-httponly csrf_token
+  // cookie alongside the session cookies; mutating requests must echo it
+  // back in this header, or the CSRFMiddleware rejects them with 403.
+  if (MUTATING_METHODS.has(method)) {
+    const csrfToken = readCookie("csrf_token");
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (res.status === 204) {

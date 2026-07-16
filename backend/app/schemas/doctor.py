@@ -57,6 +57,8 @@ class DoctorProfileRead(BaseModel):
     verification_status: DoctorVerificationStatus
     cancellation_policy_hours: int
     clinic_locations: list[ClinicLocationRead] = []
+    average_rating: float | None = None
+    review_count: int = 0
 
 
 class DoctorSearchResult(BaseModel):
@@ -67,6 +69,8 @@ class DoctorSearchResult(BaseModel):
     cities: list[str]
     photo_url: str | None = None
     next_available_slot_utc: datetime | None = None
+    average_rating: float | None = None
+    review_count: int = 0
 
 
 class AvailabilityRuleCreate(BaseModel):
@@ -75,6 +79,13 @@ class AvailabilityRuleCreate(BaseModel):
     start_time_local: time
     end_time_local: time
     slot_duration_minutes: int = Field(default=30, ge=5, le=240)
+
+
+class AvailabilityRuleUpdate(BaseModel):
+    start_time_local: time | None = None
+    end_time_local: time | None = None
+    slot_duration_minutes: int | None = Field(default=None, ge=5, le=240)
+    is_active: bool | None = None
 
 
 class AvailabilityRuleRead(BaseModel):

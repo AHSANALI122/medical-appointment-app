@@ -5,6 +5,7 @@ from app.api.deps import REFRESH_COOKIE_NAME, get_current_user
 from app.core.cookies import clear_auth_cookies, set_auth_cookies
 from app.core.db import get_session
 from app.core.exceptions import UnauthorizedError
+from app.core.rate_limit import AUTH_RATE_LIMIT, rate_limit
 from app.schemas.auth import (
     DoctorRegisterResponse,
     LoginRequest,
@@ -16,8 +17,11 @@ from app.services import auth_service
 
 router = APIRouter()
 
+_tier, _limit, _window = AUTH_RATE_LIMIT
+_auth_rate_limit = Depends(rate_limit(_tier, limit=_limit, window_seconds=_window))
 
-@router.post("/register/patient", response_model=UserPublic, status_code=201)
+
+@router.post("/register/patient", response_model=UserPublic, status_code=201, dependencies=[_auth_rate_limit])
 def register_patient(
     body: RegisterPatientRequest,
     response: Response,
@@ -35,7 +39,9 @@ def register_patient(
     return UserPublic.model_validate(user, from_attributes=True)
 
 
-@router.post("/register/doctor", response_model=DoctorRegisterResponse, status_code=201)
+@router.post(
+    "/register/doctor", response_model=DoctorRegisterResponse, status_code=201, dependencies=[_auth_rate_limit]
+)
 def register_doctor(
     body: RegisterDoctorRequest,
     response: Response,
@@ -59,7 +65,7 @@ def register_doctor(
     )
 
 
-@router.post("/login", response_model=UserPublic)
+@router.post("/login", response_model=UserPublic, dependencies=[_auth_rate_limit])
 def login(
     body: LoginRequest,
     response: Response,

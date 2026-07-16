@@ -41,3 +41,9 @@ class BookingRead(BaseModel):
     cancelled_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime
+
+
+class DoctorDashboardRead(BaseModel):
+    today: list[BookingRead]
+    upcoming: list[BookingRead]
+    pending: list[BookingRead]

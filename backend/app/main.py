@@ -10,11 +10,14 @@ from sqlmodel import Session
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
+from app.core.csrf import CSRFMiddleware
 from app.core.db import engine
 from app.core.exceptions import MedBookError
 from app.core.logging import configure_logging, get_logger
 from app.core.request_context import RequestIDMiddleware, get_request_id
+from app.jobs.completion_sweep import sweep_completed_bookings
 from app.jobs.expiry_sweep import sweep_expired_bookings
+from app.jobs.reminders import send_due_reminders
 from app.llm.client import get_llm_health
 
 configure_logging()
@@ -34,9 +37,25 @@ def _run_expiry_sweep() -> None:
             logger.info("expiry_sweep.completed", expired_count=count)
 
 
+def _run_reminder_sweep() -> None:
+    with Session(engine) as session:
+        count = send_due_reminders(session)
+        if count:
+            logger.info("reminder_sweep.completed", sent_count=count)
+
+
+def _run_completion_sweep() -> None:
+    with Session(engine) as session:
+        count = sweep_completed_bookings(session)
+        if count:
+            logger.info("completion_sweep.completed", completed_count=count)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(_run_expiry_sweep, "interval", seconds=60, id="expiry_sweep")
+    scheduler.add_job(_run_reminder_sweep, "interval", minutes=5, id="reminder_sweep")
+    scheduler.add_job(_run_completion_sweep, "interval", minutes=15, id="completion_sweep")
     scheduler.start()
     logger.info("app.startup", environment=settings.environment)
     yield
@@ -46,6 +65,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MedBook API", version="0.1.0", lifespan=lifespan)
 
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.core.exceptions import ForbiddenError, NotFoundError, PolicyViolationError
-from app.core.timezone import now_utc
+from app.core.timezone import now_utc, utc_to_local
 from app.models.booking import Booking
 from app.models.doctor import ClinicLocation, DoctorProfile
 from app.models.enums import BookingSource, BookingStatus, CancelledBy, DoctorVerificationStatus
@@ -168,6 +168,20 @@ def doctor_cancel_booking(
     return booking
 
 
+def doctor_mark_completed(session: Session, *, booking_id: uuid.UUID, doctor: DoctorProfile) -> Booking:
+    """Doctor's early-complete override (F5) — the auto-complete sweep job
+    (jobs/completion_sweep.py) handles the +24h-after-end default path."""
+    booking = _get_doctor_booking(session, booking_id, doctor)
+    machine = BookingStateMachine(session)
+    return machine.mark_completed(booking)
+
+
+def doctor_mark_no_show(session: Session, *, booking_id: uuid.UUID, doctor: DoctorProfile) -> Booking:
+    booking = _get_doctor_booking(session, booking_id, doctor)
+    machine = BookingStateMachine(session)
+    return machine.mark_no_show(booking)
+
+
 def _notify_patient(session: Session, booking: Booking, *, title: str, body: str) -> None:
     patient_profile = session.get(PatientProfile, booking.patient_profile_id)
     if patient_profile is None:
@@ -195,3 +209,43 @@ def list_doctor_bookings(
         query = query.where(Booking.status == status)
     query = query.order_by(Booking.start_time_utc.desc())
     return list(session.exec(query).all())
+
+
+def get_doctor_booking_or_403(session: Session, *, booking_id: uuid.UUID, doctor: DoctorProfile) -> Booking:
+    """Row-level auth for the doctor booking-detail view (F13 acceptance):
+    a booking that truly doesn't exist is 404, but a booking that exists and
+    belongs to a *different* doctor is 403 — the explicit distinction the
+    acceptance test checks for, unlike the note/accept endpoints which
+    collapse both cases to 404 to avoid leaking existence."""
+    booking = session.get(Booking, booking_id)
+    if booking is None:
+        raise NotFoundError("booking not found")
+    if booking.doctor_id != doctor.id:
+        raise ForbiddenError("this booking does not belong to you")
+    return booking
+
+
+def get_doctor_dashboard(session: Session, *, doctor: DoctorProfile) -> dict:
+    """Today's schedule (Asia/Karachi calendar day), upcoming confirmed
+    bookings beyond today, and pending acceptances (F13)."""
+    today_local = utc_to_local(now_utc()).date()
+
+    all_active = session.exec(
+        select(Booking)
+        .where(Booking.doctor_id == doctor.id, Booking.status.in_((BookingStatus.CONFIRMED, BookingStatus.PENDING)))
+        .order_by(Booking.start_time_utc.asc())
+    ).all()
+
+    today: list[Booking] = []
+    upcoming: list[Booking] = []
+    pending: list[Booking] = []
+    for booking in all_active:
+        if booking.status == BookingStatus.PENDING:
+            pending.append(booking)
+            continue
+        if utc_to_local(booking.start_time_utc).date() == today_local:
+            today.append(booking)
+        elif booking.start_time_utc > now_utc():
+            upcoming.append(booking)
+
+    return {"today": today, "upcoming": upcoming, "pending": pending}
