@@ -1,5 +1,6 @@
 from app.models.booking import Booking
 from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation, DoctorProfile
+from app.models.note import ClinicalNote, PatientNote
 from app.models.notification import Notification
 from app.models.taxonomy import SpecializationTaxonomy
 from app.models.user import PatientProfile, RefreshToken, User
@@ -15,4 +16,6 @@ __all__ = [
     "AvailabilityException",
     "Booking",
     "Notification",
+    "PatientNote",
+    "ClinicalNote",
 ]

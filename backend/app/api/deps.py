@@ -48,14 +48,12 @@ require_doctor = require_role(UserRole.DOCTOR)
 require_admin = require_role(UserRole.ADMIN)
 
 
-def get_active_patient_profile(
-    user: User = Depends(require_patient),
-    session: Session = Depends(get_session),
-) -> PatientProfile:
-    """Resolves the caller's own PatientProfile. Family-account profile
-    switching (F20) will extend this with an explicit active-profile selector;
-    for now every patient has exactly one 'self' profile, and it is always
-    resolved from the JWT-owned user_id — never from client-supplied input."""
+def resolve_self_patient_profile(session: Session, user: User) -> PatientProfile:
+    """Resolves a patient User's own 'self' PatientProfile. Family-account
+    profile switching (F20) will extend this with an explicit active-profile
+    selector; for now every patient has exactly one 'self' profile, and it is
+    always resolved from the JWT-owned user_id — never from client-supplied
+    input."""
     profile = session.exec(
         select(PatientProfile).where(
             PatientProfile.user_id == user.id, PatientProfile.relationship_label == "self"
@@ -64,3 +62,10 @@ def get_active_patient_profile(
     if profile is None:
         raise NotFoundError("patient profile not found")
     return profile
+
+
+def get_active_patient_profile(
+    user: User = Depends(require_patient),
+    session: Session = Depends(get_session),
+) -> PatientProfile:
+    return resolve_self_patient_profile(session, user)

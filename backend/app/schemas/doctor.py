@@ -20,6 +20,13 @@ class ClinicLocationCreate(BaseModel):
     map_embed_url: str | None = None
 
 
+class ClinicLocationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    address: str | None = Field(default=None, min_length=1, max_length=500)
+    city: str | None = Field(default=None, min_length=1, max_length=100)
+    map_embed_url: str | None = None
+
+
 class ClinicLocationRead(BaseModel):
     id: uuid.UUID
     doctor_id: uuid.UUID
@@ -59,6 +66,7 @@ class DoctorSearchResult(BaseModel):
     consultation_fee: int
     cities: list[str]
     photo_url: str | None = None
+    next_available_slot_utc: datetime | None = None
 
 
 class AvailabilityRuleCreate(BaseModel):

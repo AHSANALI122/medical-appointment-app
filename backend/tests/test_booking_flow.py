@@ -129,6 +129,29 @@ class TestFullBookingLifecycle:
         accept_resp = doctor_client.post(f"/api/v1/bookings/{draft['id']}/accept")
         assert accept_resp.json()["fee_charged"] == original_fee
 
+    def test_address_snapshot_immutable_after_clinic_address_edited(
+        self, client_factory, session, patient_user, verified_doctor, clinic_location
+    ):
+        patient_client = client_factory()
+        _login_patient(patient_client, session, patient_user)
+        draft = _create_draft(patient_client, verified_doctor, clinic_location).json()
+        original_address_snapshot = draft["address_snapshot"]
+        assert clinic_location.address in original_address_snapshot
+
+        doctor_client = client_factory()
+        _login_doctor(doctor_client)
+        patch_resp = doctor_client.patch(
+            f"/api/v1/doctors/me/clinics/{clinic_location.id}",
+            json={"address": "999 Somewhere Else Road"},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["address"] == "999 Somewhere Else Road"
+
+        patient_client.post(f"/api/v1/bookings/{draft['id']}/confirm")
+        accept_resp = doctor_client.post(f"/api/v1/bookings/{draft['id']}/accept")
+        assert accept_resp.json()["address_snapshot"] == original_address_snapshot
+        assert "999 Somewhere Else Road" not in accept_resp.json()["address_snapshot"]
+
     def test_unverified_doctor_cannot_receive_draft(self, client_factory, session, specialization):
         from app.core.security import hash_password
         from app.models.doctor import ClinicLocation, DoctorProfile

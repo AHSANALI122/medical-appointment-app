@@ -1,4 +1,5 @@
 import uuid
+from enum import StrEnum
 
 from sqlmodel import Session, func, select
 
@@ -6,6 +7,12 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation, DoctorProfile
 from app.models.enums import DoctorVerificationStatus
 from app.models.user import User
+
+
+class DoctorSortOrder(StrEnum):
+    NAME = "name"
+    FEE_ASC = "fee_asc"
+    FEE_DESC = "fee_desc"
 
 
 def get_doctor_profile_for_user(session: Session, user: User) -> DoctorProfile:
@@ -37,6 +44,34 @@ def add_clinic_location(
     location = ClinicLocation(
         doctor_id=doctor_id, name=name, address=address, city=city, map_embed_url=map_embed_url
     )
+    session.add(location)
+    session.commit()
+    session.refresh(location)
+    return location
+
+
+def update_clinic_location(
+    session: Session,
+    *,
+    doctor_id: uuid.UUID,
+    clinic_location_id: uuid.UUID,
+    name: str | None,
+    address: str | None,
+    city: str | None,
+    map_embed_url: str | None,
+) -> ClinicLocation:
+    """Edits a clinic's live address. Past bookings keep their own
+    `address_snapshot` string copied at draft time (F8) — this never
+    rewrites history, it only changes what's shown for future bookings."""
+    location = _assert_owns_clinic(session, doctor_id, clinic_location_id)
+    if name is not None:
+        location.name = name
+    if address is not None:
+        location.address = address
+    if city is not None:
+        location.city = city
+    if map_embed_url is not None:
+        location.map_embed_url = map_embed_url
     session.add(location)
     session.commit()
     session.refresh(location)
@@ -107,9 +142,14 @@ def search_doctors(
     city: str | None,
     fee_min: int | None,
     fee_max: int | None,
+    name: str | None = None,
+    sort: DoctorSortOrder = DoctorSortOrder.NAME,
     offset: int,
     limit: int,
 ) -> tuple[list[DoctorProfile], int]:
+    # Only `verified` doctors are searchable/bookable (F23) — this is the one
+    # server-enforced gate that makes the acceptance criterion true no matter
+    # what filters/sort a client requests.
     query = select(DoctorProfile).where(
         DoctorProfile.verification_status == DoctorVerificationStatus.VERIFIED
     )
@@ -121,10 +161,30 @@ def search_doctors(
         query = query.where(DoctorProfile.consultation_fee <= fee_max)
 
     if city is not None:
-        query = query.join(ClinicLocation).where(ClinicLocation.city == city)
+        # A subquery rather than a join — a doctor with multiple clinics in
+        # the same city must appear once, not once per matching clinic row.
+        query = query.where(
+            DoctorProfile.id.in_(select(ClinicLocation.doctor_id).where(ClinicLocation.city == city))
+        )
+
+    needs_user_join = name is not None or sort == DoctorSortOrder.NAME
+    if needs_user_join:
+        query = query.join(User, User.id == DoctorProfile.user_id)
+    if name is not None:
+        # ILIKE against users.full_name, backed by a pg_trgm GIN index
+        # (see migration) so this stays fast at 10k-doctor scale (F10 p95).
+        query = query.where(User.full_name.ilike(f"%{name}%"))
 
     total = session.exec(
         select(func.count()).select_from(query.with_only_columns(DoctorProfile.id).subquery())
     ).one()
+
+    if sort == DoctorSortOrder.FEE_ASC:
+        query = query.order_by(DoctorProfile.consultation_fee.asc())
+    elif sort == DoctorSortOrder.FEE_DESC:
+        query = query.order_by(DoctorProfile.consultation_fee.desc())
+    else:
+        query = query.order_by(User.full_name.asc())
+
     page_items = list(session.exec(query.offset(offset).limit(limit)).all())
     return page_items, total

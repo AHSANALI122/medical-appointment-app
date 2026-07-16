@@ -97,7 +97,17 @@ def doctor_accept_booking(session: Session, *, booking_id: uuid.UUID, doctor: Do
     booking = _get_doctor_booking(session, booking_id, doctor)
     machine = BookingStateMachine(session)
     booking = machine.doctor_accept(booking)
-    _notify_patient(session, booking, title="Booking confirmed", body="Your appointment has been confirmed.")
+    # Confirmation notification carries the same fee + address the patient
+    # saw at draft time (F7/F8) — never the doctor's current live values.
+    _notify_patient(
+        session,
+        booking,
+        title="Booking confirmed",
+        body=(
+            f"Your appointment on {booking.start_time_utc.isoformat()} is confirmed. "
+            f"Fee: Rs. {booking.fee_charged}. Location: {booking.address_snapshot}."
+        ),
+    )
     return booking
 
 

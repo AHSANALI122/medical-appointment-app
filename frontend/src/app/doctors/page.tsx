@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import type { DoctorSearchResult, Page, SpecializationRead } from "@/lib/types";
+import type { DoctorSearchResult, DoctorSortOrder, Page, SpecializationRead } from "@/lib/types";
 
 export default function DoctorsPage() {
   const [specializations, setSpecializations] = useState<SpecializationRead[]>([]);
   const [specializationId, setSpecializationId] = useState("");
   const [city, setCity] = useState("");
+  const [name, setName] = useState("");
+  const [sort, setSort] = useState<DoctorSortOrder>("name");
   const [results, setResults] = useState<Page<DoctorSearchResult> | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -19,20 +21,33 @@ export default function DoctorsPage() {
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), page_size: "10" });
+    const params = new URLSearchParams({ page: String(page), page_size: "10", sort });
     if (specializationId) params.set("specialization_id", specializationId);
     if (city) params.set("city", city);
-    api
-      .get<Page<DoctorSearchResult>>(`/api/v1/doctors?${params.toString()}`)
-      .then(setResults)
-      .finally(() => setLoading(false));
-  }, [specializationId, city, page]);
+    if (name) params.set("name", name);
+    const handle = setTimeout(() => {
+      api
+        .get<Page<DoctorSearchResult>>(`/api/v1/doctors?${params.toString()}`)
+        .then(setResults)
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [specializationId, city, name, sort, page]);
 
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">Find a doctor</h1>
 
       <div className="mb-6 flex flex-wrap gap-3">
+        <input
+          placeholder="Search by doctor name"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setPage(1);
+          }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        />
         <select
           value={specializationId}
           onChange={(e) => {
@@ -57,6 +72,18 @@ export default function DoctorsPage() {
           }}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
         />
+        <select
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value as DoctorSortOrder);
+            setPage(1);
+          }}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="name">Sort: Name</option>
+          <option value="fee_asc">Sort: Fee (low to high)</option>
+          <option value="fee_desc">Sort: Fee (high to low)</option>
+        </select>
       </div>
 
       {loading && <p className="text-slate-500">Loading…</p>}
@@ -78,6 +105,11 @@ export default function DoctorsPage() {
               {doctor.cities.join(", ") || "Location not set"}
             </p>
             <p className="mt-1 font-medium text-teal-700">Rs. {doctor.consultation_fee}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {doctor.next_available_slot_utc
+                ? `Next available: ${new Date(doctor.next_available_slot_utc).toLocaleString()}`
+                : "No slots in the next 2 weeks"}
+            </p>
           </Link>
         ))}
       </div>

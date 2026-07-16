@@ -16,6 +16,7 @@ from app.schemas.doctor import (
     AvailabilityRuleRead,
     ClinicLocationCreate,
     ClinicLocationRead,
+    ClinicLocationUpdate,
     DoctorProfileRead,
     DoctorProfileUpdate,
     DoctorSearchResult,
@@ -24,7 +25,8 @@ from app.schemas.doctor import (
 )
 from app.schemas.pagination import Page, PageParams
 from app.services import doctor_service
-from app.services.slot_service import MAX_HORIZON, generate_available_slots
+from app.services.doctor_service import DoctorSortOrder
+from app.services.slot_service import MAX_HORIZON, generate_available_slots, next_available_slot_for_doctor
 
 router = APIRouter()
 
@@ -50,6 +52,8 @@ def search_doctors(
     city: str | None = None,
     fee_min: int | None = None,
     fee_max: int | None = None,
+    name: str | None = Query(default=None, min_length=1, max_length=200),
+    sort: DoctorSortOrder = DoctorSortOrder.NAME,
     params: PageParams = Depends(),
     session: Session = Depends(get_session),
 ) -> Page[DoctorSearchResult]:
@@ -59,6 +63,8 @@ def search_doctors(
         city=city,
         fee_min=fee_min,
         fee_max=fee_max,
+        name=name,
+        sort=sort,
         offset=params.offset,
         limit=params.page_size,
     )
@@ -74,6 +80,9 @@ def search_doctors(
                 consultation_fee=doctor.consultation_fee,
                 cities=sorted({loc.city for loc in locations}),
                 photo_url=doctor.photo_url,
+                # Computed only for this page's rows (bounded by page_size),
+                # never across the full doctor corpus — see slot_service.
+                next_available_slot_utc=next_available_slot_for_doctor(session, doctor_id=doctor.id),
             )
         )
     return Page.create(results, page=params.page, page_size=params.page_size, total=total)
@@ -112,6 +121,26 @@ def add_clinic(
     location = doctor_service.add_clinic_location(
         session,
         doctor_id=doctor.id,
+        name=body.name,
+        address=body.address,
+        city=body.city,
+        map_embed_url=body.map_embed_url,
+    )
+    return ClinicLocationRead.model_validate(location, from_attributes=True)
+
+
+@router.patch("/me/clinics/{clinic_location_id}", response_model=ClinicLocationRead)
+def update_clinic(
+    clinic_location_id: uuid.UUID,
+    body: ClinicLocationUpdate,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> ClinicLocationRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    location = doctor_service.update_clinic_location(
+        session,
+        doctor_id=doctor.id,
+        clinic_location_id=clinic_location_id,
         name=body.name,
         address=body.address,
         city=body.city,

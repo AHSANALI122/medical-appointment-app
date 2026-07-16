@@ -67,7 +67,10 @@ export interface DoctorSearchResult {
   consultation_fee: number;
   cities: string[];
   photo_url: string | null;
+  next_available_slot_utc: string | null;
 }
+
+export type DoctorSortOrder = "name" | "fee_asc" | "fee_desc";
 
 export interface AvailabilityRuleRead {
   id: string;
@@ -106,6 +109,23 @@ export interface BookingRead {
   cancelled_at: string | null;
   completed_at: string | null;
   created_at: string;
+}
+
+export interface PatientNoteRead {
+  id: string;
+  booking_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicalNoteRead {
+  id: string;
+  booking_id: string;
+  content: string;
+  is_shared_with_patient: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Page<T> {

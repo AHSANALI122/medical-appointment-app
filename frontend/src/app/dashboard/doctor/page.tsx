@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, ClinicLocationRead, DoctorProfileRead, Page, Weekday } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ClinicalNoteEditor, PatientNoteViewer } from "@/components/NoteWidgets";
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
   { value: "mon", label: "Monday" },
@@ -112,6 +113,7 @@ export default function DoctorDashboardPage() {
               <p className="font-medium">{new Date(booking.start_time_utc).toLocaleString()}</p>
               <p className="text-sm text-slate-600">{booking.address_snapshot}</p>
               <p className="text-sm text-slate-600">Fee: Rs. {booking.fee_charged}</p>
+              <PatientNoteViewer bookingId={booking.id} />
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => handleAccept(booking.id)}
@@ -147,6 +149,10 @@ export default function DoctorDashboardPage() {
                 </div>
                 <p className="font-medium">{new Date(booking.start_time_utc).toLocaleString()}</p>
                 <p className="text-sm text-slate-500">{booking.address_snapshot}</p>
+                <PatientNoteViewer bookingId={booking.id} />
+                {(booking.status === "confirmed" || booking.status === "completed") && (
+                  <ClinicalNoteEditor bookingId={booking.id} />
+                )}
               </div>
               {booking.status === "confirmed" && (
                 <button
@@ -232,11 +238,9 @@ function ClinicSetup({ profile, onChange }: { profile: DoctorProfileRead; onChan
         {profile.clinic_locations.length === 0 && (
           <p className="mb-3 text-sm text-slate-500">No clinics yet — add one below.</p>
         )}
-        <ul className="mb-4 flex flex-col gap-1 text-sm text-slate-600">
+        <ul className="mb-4 flex flex-col gap-2 text-sm text-slate-600">
           {profile.clinic_locations.map((c) => (
-            <li key={c.id}>
-              {c.name} — {c.address}, {c.city}
-            </li>
+            <ClinicRow key={c.id} clinic={c} onChange={onChange} />
           ))}
         </ul>
         <form onSubmit={handleAddClinic} className="grid gap-2 sm:grid-cols-4">
@@ -331,5 +335,62 @@ function ClinicSetup({ profile, onChange }: { profile: DoctorProfileRead; onChan
         {ruleError && <p className="mt-2 text-sm text-red-600">{ruleError}</p>}
       </div>
     </section>
+  );
+}
+
+function ClinicRow({ clinic, onChange }: { clinic: ClinicLocationRead; onChange: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [address, setAddress] = useState(clinic.address);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch<ClinicLocationRead>(`/api/v1/doctors/me/clinics/${clinic.id}`, { address });
+      setEditing(false);
+      onChange();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update address.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <li className="flex items-center justify-between gap-2">
+        <span>
+          {clinic.name} — {clinic.address}, {clinic.city}
+        </span>
+        <button onClick={() => setEditing(true)} className="text-xs text-teal-700 underline">
+          edit address
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !address.trim()}
+          className="rounded-md bg-teal-600 px-2 py-1 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-xs text-slate-500 underline">
+          cancel
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </li>
   );
 }

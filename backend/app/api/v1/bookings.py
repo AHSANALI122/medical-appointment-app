@@ -6,15 +6,22 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from app.api.deps import get_active_patient_profile, require_doctor, require_patient
+from app.api.deps import (
+    get_active_patient_profile,
+    get_current_user,
+    require_doctor,
+    require_patient,
+    resolve_self_patient_profile,
+)
 from app.core.db import get_session
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.booking import Booking
-from app.models.enums import BookingStatus
+from app.models.enums import BookingStatus, UserRole
 from app.models.user import PatientProfile, User
 from app.schemas.booking import BookingRead, CancelRequest, CreateDraftRequest, RejectRequest
+from app.schemas.note import ClinicalNoteRead, ClinicalNoteWrite, PatientNoteRead, PatientNoteWrite
 from app.schemas.pagination import Page, PageParams
-from app.services import booking_service, doctor_service
+from app.services import booking_service, doctor_service, note_service
 
 router = APIRouter()
 
@@ -154,6 +161,75 @@ def doctor_cancel_booking(
         session, booking_id=booking_id, doctor=doctor, reason=body.reason
     )
     return BookingRead.model_validate(booking, from_attributes=True)
+
+
+@router.put("/{booking_id}/patient-note", response_model=PatientNoteRead)
+def write_patient_note(
+    booking_id: uuid.UUID,
+    body: PatientNoteWrite,
+    patient_profile: PatientProfile = Depends(get_active_patient_profile),
+    session: Session = Depends(get_session),
+) -> PatientNoteRead:
+    note = note_service.upsert_patient_note(
+        session, booking_id=booking_id, patient_profile=patient_profile, content=body.content
+    )
+    return PatientNoteRead.model_validate(note, from_attributes=True)
+
+
+@router.get("/{booking_id}/patient-note", response_model=PatientNoteRead)
+def read_patient_note(
+    booking_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PatientNoteRead:
+    if user.role == UserRole.DOCTOR:
+        doctor = doctor_service.get_doctor_profile_for_user(session, user)
+        note = note_service.get_patient_note_for_doctor(session, booking_id=booking_id, doctor=doctor)
+    elif user.role == UserRole.PATIENT:
+        patient_profile = resolve_self_patient_profile(session, user)
+        note = note_service.get_patient_note_for_patient(
+            session, booking_id=booking_id, patient_profile=patient_profile
+        )
+    else:
+        raise ForbiddenError("not authorized to view this note")
+    return PatientNoteRead.model_validate(note, from_attributes=True)
+
+
+@router.put("/{booking_id}/clinical-note", response_model=ClinicalNoteRead)
+def write_clinical_note(
+    booking_id: uuid.UUID,
+    body: ClinicalNoteWrite,
+    user: User = Depends(require_doctor),
+    session: Session = Depends(get_session),
+) -> ClinicalNoteRead:
+    doctor = doctor_service.get_doctor_profile_for_user(session, user)
+    note = note_service.upsert_clinical_note(
+        session,
+        booking_id=booking_id,
+        doctor=doctor,
+        content=body.content,
+        is_shared_with_patient=body.is_shared_with_patient,
+    )
+    return ClinicalNoteRead.model_validate(note, from_attributes=True)
+
+
+@router.get("/{booking_id}/clinical-note", response_model=ClinicalNoteRead)
+def read_clinical_note(
+    booking_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> ClinicalNoteRead:
+    if user.role == UserRole.DOCTOR:
+        doctor = doctor_service.get_doctor_profile_for_user(session, user)
+        note = note_service.get_clinical_note_for_doctor(session, booking_id=booking_id, doctor=doctor)
+    elif user.role == UserRole.PATIENT:
+        patient_profile = resolve_self_patient_profile(session, user)
+        note = note_service.get_clinical_note_for_patient(
+            session, booking_id=booking_id, patient_profile=patient_profile
+        )
+    else:
+        raise ForbiddenError("not authorized to view this note")
+    return ClinicalNoteRead.model_validate(note, from_attributes=True)
 
 
 @router.get("/me/stream")

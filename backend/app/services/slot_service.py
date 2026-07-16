@@ -1,15 +1,21 @@
+import uuid
 from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, select
 
-from app.core.timezone import UTC, combine_local, now_utc
+from app.core.timezone import UTC, combine_local, now_local, now_utc
 from app.models.booking import Booking
-from app.models.doctor import AvailabilityException, AvailabilityRule
+from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation
 from app.models.enums import SLOT_HOLDING_STATUSES, Weekday
 from app.schemas.doctor import SlotRead
 
 MIN_LEAD_TIME = timedelta(minutes=30)
 MAX_HORIZON = timedelta(days=60)
+
+# Bound for the F10 search "next available slot" lookup — deliberately short
+# (vs. the full 60-day booking horizon) so it stays cheap per search result
+# row; a doctor with nothing open in 2 weeks just shows no next slot.
+_NEXT_SLOT_LOOKUP_WINDOW = timedelta(days=14)
 
 _WEEKDAY_BY_INDEX = {
     0: Weekday.MON,
@@ -121,3 +127,31 @@ def _slots_for_rule(
         cursor_local += step
 
     return results
+
+
+def next_available_slot_for_doctor(session: Session, *, doctor_id: uuid.UUID) -> datetime | None:
+    """Earliest open slot across all of a doctor's active clinic locations,
+    within a short lookahead window (F10 search result field). Only ever
+    called per-row on an already-paginated result page, never across the
+    full doctor corpus, to keep search latency independent of catalog size."""
+    today = now_local().date()
+    to_date = (now_local() + _NEXT_SLOT_LOOKUP_WINDOW).date()
+
+    locations = session.exec(
+        select(ClinicLocation).where(
+            ClinicLocation.doctor_id == doctor_id, ClinicLocation.is_active == True  # noqa: E712
+        )
+    ).all()
+
+    earliest: datetime | None = None
+    for location in locations:
+        slots = generate_available_slots(
+            session,
+            doctor_id=doctor_id,
+            clinic_location_id=location.id,
+            from_date=today,
+            to_date=to_date,
+        )
+        if slots and (earliest is None or slots[0].start_time_utc < earliest):
+            earliest = slots[0].start_time_utc
+    return earliest

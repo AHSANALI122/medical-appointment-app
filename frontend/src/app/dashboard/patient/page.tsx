@@ -5,6 +5,7 @@ import { api, apiUrl, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, Page } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ClinicalNoteViewer, PatientNoteEditor } from "@/components/NoteWidgets";
 
 const CANCELLABLE: BookingRead["status"][] = ["pending", "confirmed"];
 
@@ -113,6 +114,10 @@ export default function PatientDashboardPage() {
                 <p className="mt-1 text-sm text-red-600">
                   Cancelled by {booking.cancelled_by}: {booking.cancelled_reason}
                 </p>
+              )}
+              <PatientNoteEditor bookingId={booking.id} />
+              {(booking.status === "confirmed" || booking.status === "completed") && (
+                <ClinicalNoteViewer bookingId={booking.id} />
               )}
             </div>
             {CANCELLABLE.includes(booking.status) && (
