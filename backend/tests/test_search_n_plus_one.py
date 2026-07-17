@@ -71,8 +71,9 @@ def many_doctors(session, specialization):
 
 class TestSearchQueryCount:
     def test_query_count_does_not_scale_with_result_size(self, client, session, many_doctors):
-        """The actual N+1 assertion: doubling the page size must not double
-        the query count. Before batching, each row cost ~4 queries."""
+        """The actual N+1 assertion: doubling the page size must not change
+        the query count at all. Before batching, each row cost ~4 queries;
+        the next-slot lookup then cost a further 1-per-location-per-row."""
         from app.core.cache import reset_cache_backend
 
         reset_cache_backend()
@@ -85,10 +86,9 @@ class TestSearchQueryCount:
             assert client.get("/api/v1/doctors?page=1&page_size=10").status_code == 200
         large_count = len(large)
 
-        # Slot lookup is still per-row (documented in the endpoint), so the
-        # count grows a little — but nothing like the ~4-per-row it was.
-        # Doubling rows must add well under 2x the queries.
-        assert large_count < small_count * 2, (
+        # Every lookup in search_doctors is now batched per page, so the query
+        # count is a constant, independent of how many rows come back.
+        assert large_count == small_count, (
             f"query count scaled with page size ({small_count} -> {large_count}): "
             "an N+1 has been reintroduced in search_doctors"
         )

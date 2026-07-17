@@ -28,7 +28,11 @@ from app.schemas.pagination import Page, PageParams
 from app.schemas.review import ReviewRead
 from app.services import doctor_cache, doctor_service, review_service
 from app.services.doctor_service import DoctorSortOrder
-from app.services.slot_service import MAX_HORIZON, generate_available_slots, next_available_slot_for_doctor
+from app.services.slot_service import (
+    MAX_HORIZON,
+    generate_available_slots,
+    next_available_slot_for_doctors,
+)
 
 router = APIRouter()
 
@@ -117,15 +121,16 @@ def search_doctors(
         offset=params.offset,
         limit=params.page_size,
     )
-    # F28 N+1 prevention: users, clinics, ratings and specializations are
-    # fetched once for the whole page rather than per row. Before this, a
-    # 20-row page issued ~80 queries; the 60s cache above only hid that on
-    # the warm path, and every cache miss paid it in full.
+    # F28 N+1 prevention: users, clinics, ratings, specializations and next
+    # slots are each fetched once for the whole page rather than per row.
+    # Before this, a 20-row page issued ~80 queries; the 60s cache above only
+    # hid that on the warm path, and every cache miss paid it in full.
     doctor_ids = [d.id for d in doctors]
     users = _users_by_id(session, [d.user_id for d in doctors])
     locations_by_doctor = doctor_service.list_clinic_locations_for_doctors(session, doctor_ids)
     ratings = review_service.get_doctor_rating_summaries(session, doctor_ids=doctor_ids)
     specializations = _specializations_by_id(session, [d.specialization_id for d in doctors])
+    next_slots = next_available_slot_for_doctors(session, doctor_ids=doctor_ids)
 
     results = []
     for doctor in doctors:
@@ -140,11 +145,7 @@ def search_doctors(
                 consultation_fee=doctor.consultation_fee,
                 cities=sorted({loc.city for loc in locations}),
                 photo_url=doctor.photo_url,
-                # Still per-row: slot generation walks availability rules and
-                # existing bookings per doctor, so it can't collapse into one
-                # query as cheaply as the lookups above. Bounded by page_size
-                # and never computed across the full corpus — see slot_service.
-                next_available_slot_utc=next_available_slot_for_doctor(session, doctor_id=doctor.id),
+                next_available_slot_utc=next_slots.get(doctor.id),
                 average_rating=avg_rating,
                 review_count=review_count,
             )
