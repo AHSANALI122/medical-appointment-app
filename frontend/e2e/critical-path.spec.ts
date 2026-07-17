@@ -11,16 +11,37 @@ import { expect, test } from "@playwright/test";
  */
 
 const DEMO_PASSWORD = "demo1234";
+const DOCTOR_EMAIL = "doctor1@demo.medbook.pk";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-/** Unique per run — signup can only ever happen once per email. */
+/**
+ * Unique per run — signup can only ever happen once per email.
+ *
+ * Not a `.invalid` domain, tempting as that is for a throwaway address:
+ * the API validates with Pydantic's EmailStr, which rejects RFC 2606
+ * reserved TLDs outright ("special-use or reserved name"). A subdomain of
+ * the real domain is both valid and obviously non-production.
+ */
 function uniqueEmail() {
-  return `e2e-${Date.now()}-${Math.floor(Math.random() * 10000)}@e2e.medbook.invalid`;
+  return `e2e-${Date.now()}-${Math.floor(Math.random() * 10000)}@e2e.medbook.pk`;
 }
 
 test.describe("critical path", () => {
   test("patient signs up, searches, books, and the doctor accepts", async ({ page, request }) => {
     const email = uniqueEmail();
+
+    // Resolve the demo doctor's id up front and book with *that* doctor.
+    // Clicking whichever result lands first instead would make the accept
+    // step non-deterministic: search sorts by name, so the first row is
+    // "Dr. Ahmed Zubair" (seeded as doctor16), not doctor1 — and the test
+    // would then log in as the wrong doctor and find nothing pending.
+    const doctorLogin = await request.post(`${API_URL}/api/v1/auth/login`, {
+      data: { email: DOCTOR_EMAIL, password: DEMO_PASSWORD },
+    });
+    expect(doctorLogin.ok()).toBeTruthy();
+    const doctorProfile = await request.get(`${API_URL}/api/v1/doctors/me`);
+    expect(doctorProfile.ok()).toBeTruthy();
+    const doctorId = (await doctorProfile.json()).id;
 
     await test.step("sign up", async () => {
       await page.goto("/register/patient");
@@ -41,14 +62,13 @@ test.describe("critical path", () => {
     });
 
     await test.step("open a doctor and hold a slot (draft)", async () => {
-      const firstDoctor = page.getByRole("link").filter({ hasText: /Dr\./ }).first();
-      await firstDoctor.click();
+      await page.goto(`/doctors/${doctorId}`);
 
       await expect(page.getByRole("heading", { name: "1. Choose a slot" })).toBeVisible();
 
       // Slots are generated from the seeded availability rules; take the first.
       const firstSlot = page.locator("button").filter({ hasText: /^\d{1,2}:\d{2}/ }).first();
-      await expect(firstSlot).toBeVisible({ timeout: 15_000 });
+      await expect(firstSlot).toBeVisible();
       await firstSlot.click();
 
       await expect(page.getByRole("heading", { name: "2. Review" })).toBeVisible();
@@ -70,18 +90,17 @@ test.describe("critical path", () => {
 
     await test.step("booking shows as pending on the patient dashboard", async () => {
       await page.goto("/dashboard/patient");
-      await expect(page.getByText(/pending/i).first()).toBeVisible();
+      // The UI shows the patient-facing label, not the raw status — a
+      // patient is told "Awaiting doctor", never "pending" (StatusBadge.tsx).
+      // Asserting the enum here would test the API through the DOM.
+      await expect(page.getByText("Awaiting doctor").first()).toBeVisible();
     });
 
     await test.step("doctor accepts (pending → confirmed)", async () => {
       // Driven through the API rather than the doctor UI: this test's subject
       // is the patient's path, and we need a deterministic accept, not a
-      // second browser session racing the first.
-      const login = await request.post(`${API_URL}/api/v1/auth/login`, {
-        data: { email: "doctor1@demo.medbook.pk", password: DEMO_PASSWORD },
-      });
-      expect(login.ok()).toBeTruthy();
-
+      // second browser session racing the first. `request` is already
+      // authenticated as the doctor from the lookup above.
       const pending = await request.get(`${API_URL}/api/v1/bookings/doctor/me?status=pending`);
       expect(pending.ok()).toBeTruthy();
       const body = await pending.json();
@@ -98,7 +117,9 @@ test.describe("critical path", () => {
 
     await test.step("patient sees it confirmed", async () => {
       await page.goto("/dashboard/patient");
-      await expect(page.getByText(/confirmed/i).first()).toBeVisible();
+      await expect(page.getByText("Confirmed").first()).toBeVisible();
+      // And the pending state is genuinely gone, not just scrolled past.
+      await expect(page.getByText("Awaiting doctor")).toHaveCount(0);
     });
   });
 

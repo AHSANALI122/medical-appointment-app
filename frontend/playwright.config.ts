@@ -26,10 +26,20 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
 
+  // Timeouts are sized for a REMOTE database, not for CI. Against a Neon
+  // instance in another region every query is a ~300ms round trip, so a
+  // cold doctor search measures ~14s from a dev machine while taking
+  // milliseconds in CI (Postgres in the same container). Playwright's 5s
+  // default fails on latency alone and reads as a broken app.
+  timeout: 120_000,
+  expect: { timeout: 30_000 },
+
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    actionTimeout: 30_000,
+    navigationTimeout: 60_000,
   },
 
   projects: [

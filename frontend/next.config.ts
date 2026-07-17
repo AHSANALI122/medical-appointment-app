@@ -25,5 +25,4 @@ export default withSentryConfig(nextConfig, {
   // Routes Sentry's browser requests through our own origin so ad blockers
   // don't silently swallow error reports.
   tunnelRoute: "/monitoring",
-  disableLogger: true,
 });
