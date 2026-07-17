@@ -5,6 +5,7 @@ from app.models.dead_letter import DeadLetterJob
 from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation, DoctorProfile
 from app.models.feature_flag import FeatureFlag
 from app.models.followup import FollowUp
+from app.models.llm_usage import DailyLLMUsage
 from app.models.medical_history import MedicalHistory
 from app.models.note import ClinicalNote, PatientNote
 from app.models.notification import Notification
@@ -37,4 +38,5 @@ __all__ = [
     "Waitlist",
     "FollowUp",
     "FeatureFlag",
+    "DailyLLMUsage",
 ]

@@ -65,6 +65,12 @@ class Booking(SQLModel, table=True):
     cancelled_reason: str | None = None
     rejected_reason: str | None = None
 
+    # F26 funnel: current status alone can't answer "did this booking ever
+    # reach pending?" — an `expired` row could have died as a draft (patient
+    # never tapped confirm) or as a pending request (doctor never answered),
+    # and those are opposite ends of the funnel. Stamped on the
+    # draft->pending edge, alongside the confirmed/cancelled/completed marks.
+    pending_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
     confirmed_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
     cancelled_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
     completed_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))

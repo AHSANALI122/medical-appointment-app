@@ -88,6 +88,28 @@ def list_clinic_locations(session: Session, doctor_id: uuid.UUID) -> list[Clinic
     )
 
 
+def list_clinic_locations_for_doctors(
+    session: Session, doctor_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[ClinicLocation]]:
+    """Batched form of `list_clinic_locations` for list endpoints (F28 N+1
+    prevention). Every requested id gets a key, so a doctor with no active
+    clinic yields [] rather than a KeyError."""
+    if not doctor_ids:
+        return {}
+
+    locations = session.exec(
+        select(ClinicLocation).where(
+            ClinicLocation.doctor_id.in_(doctor_ids),
+            ClinicLocation.is_active == True,  # noqa: E712
+        )
+    ).all()
+
+    grouped: dict[uuid.UUID, list[ClinicLocation]] = {doctor_id: [] for doctor_id in doctor_ids}
+    for location in locations:
+        grouped[location.doctor_id].append(location)
+    return grouped
+
+
 def add_availability_rule(
     session: Session,
     *,

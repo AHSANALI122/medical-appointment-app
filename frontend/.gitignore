@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright (F30)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# sentry (F26) — build-time source map upload config
+.env.sentry-build-plugin

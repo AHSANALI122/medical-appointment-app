@@ -43,8 +43,13 @@ export default function RegisterPatientPage() {
       <h1 className="mb-6 text-2xl font-semibold">Create a patient account</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
+          <label htmlFor="register-full-name" className="mb-1 block text-sm font-medium text-slate-700">
+            Full name
+          </label>
           <input
+            id="register-full-name"
+            name="fullName"
+            autoComplete="name"
             required
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
@@ -52,8 +57,13 @@ export default function RegisterPatientPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+          <label htmlFor="register-email" className="mb-1 block text-sm font-medium text-slate-700">
+            Email
+          </label>
           <input
+            id="register-email"
+            name="email"
+            autoComplete="email"
             type="email"
             required
             value={email}
@@ -62,16 +72,26 @@ export default function RegisterPatientPage() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Phone (optional)</label>
+          <label htmlFor="register-phone" className="mb-1 block text-sm font-medium text-slate-700">
+            Phone (optional)
+          </label>
           <input
+            id="register-phone"
+            name="phone"
+            autoComplete="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             className="w-full rounded-md border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none"
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
+          <label htmlFor="register-password" className="mb-1 block text-sm font-medium text-slate-700">
+            Password
+          </label>
           <input
+            id="register-password"
+            name="password"
+            autoComplete="new-password"
             type="password"
             required
             minLength={8}

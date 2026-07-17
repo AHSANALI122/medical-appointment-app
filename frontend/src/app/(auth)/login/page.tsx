@@ -46,8 +46,13 @@ function LoginForm() {
       <h1 className="mb-6 text-2xl font-semibold">Log in</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+          <label htmlFor="login-email" className="mb-1 block text-sm font-medium text-slate-700">
+            Email
+          </label>
           <input
+            id="login-email"
+            name="email"
+            autoComplete="email"
             type="email"
             required
             value={email}
@@ -56,8 +61,13 @@ function LoginForm() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
+          <label htmlFor="login-password" className="mb-1 block text-sm font-medium text-slate-700">
+            Password
+          </label>
           <input
+            id="login-password"
+            name="password"
+            autoComplete="current-password"
             type="password"
             required
             value={password}

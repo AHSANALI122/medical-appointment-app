@@ -129,7 +129,15 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Build
+        # F26: source maps upload to Sentry only when SENTRY_AUTH_TOKEN is
+        # configured. next.config.ts skips upload (rather than failing) when
+        # it's absent, so fork PRs and secret-less repos still build green.
         run: npm run build
+        env:
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
 
 # No deploy job yet: this repo has no linked Vercel/Railway project and no
 # deploy secrets configured. Once those are linked, add a `deploy` job here

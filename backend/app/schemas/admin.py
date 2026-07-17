@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,22 @@ class PlatformStatsRead(BaseModel):
     bookings_by_status: dict[str, int]
     pending_reviews: int
     approved_reviews: int
+
+
+class FeatureFlagRead(BaseModel):
+    key: str
+    enabled: bool
+
+
+class FeatureFlagUpdate(BaseModel):
+    enabled: bool
+
+
+class AccountRestoreRead(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    is_active: bool
+    deleted_at: datetime | None
 
 
 class DoctorVerificationQueueItem(BaseModel):

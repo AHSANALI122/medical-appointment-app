@@ -19,6 +19,13 @@ FOLLOWUP = "followup"
 AI_SUMMARY = "ai_summary"
 FAMILY_ACCOUNTS = "family_accounts"
 
+# F29 — the admin API lists/validates against this set rather than against
+# whatever rows exist, because a key with no row is *enabled* (see
+# `is_enabled`): listing only existing rows would show an empty page while
+# every feature was silently on, and accepting arbitrary keys would let a
+# typo ("watilist") create a row that gates nothing.
+KNOWN_FLAGS = (WAITLIST, FOLLOWUP, AI_SUMMARY, FAMILY_ACCOUNTS)
+
 
 def is_enabled(session: Session, key: str) -> bool:
     flag = session.exec(select(FeatureFlag).where(FeatureFlag.key == key)).first()

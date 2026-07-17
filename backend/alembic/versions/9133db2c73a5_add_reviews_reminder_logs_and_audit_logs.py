@@ -95,3 +95,13 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_audit_logs_action'), table_name='audit_logs')
     op.drop_table('audit_logs')
     # ### end Alembic commands ###
+
+    # Postgres ENUM types are separate DB objects that op.drop_table() does not
+    # remove — drop them explicitly so downgrade is fully reversible. Without
+    # this, `downgrade base && upgrade head` fails on the way back up with
+    # 'type "reminderoffset" already exists', which breaks both the F27
+    # restore drill and F29's rollback story. Same pattern as the initial
+    # schema migration and the waitlist migration.
+    bind = op.get_bind()
+    for enum_name in ('reminderoffset', 'reviewmoderationstatus'):
+        sa.Enum(name=enum_name).drop(bind, checkfirst=True)

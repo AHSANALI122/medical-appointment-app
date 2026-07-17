@@ -180,6 +180,7 @@ class ResilientModelRouter:
     def __init__(self, *, primary: LLMProvider, fallback: LLMProvider) -> None:
         self.primary = primary
         self.fallback = fallback
+        self.last_provider_used: LLMProvider | None = None
 
     async def _run_once(self, provider: LLMProvider, run_fn):
         model = get_agent_model(provider)
@@ -195,6 +196,7 @@ class ResilientModelRouter:
             try:
                 result = await self._retrying_primary(run_fn)
                 breaker.record_success(self.primary)
+                self.last_provider_used = self.primary
                 return result
             except _GUARDRAIL_EXCEPTIONS:
                 # Not a provider failure — the primary answered fine and a
@@ -209,6 +211,7 @@ class ResilientModelRouter:
         try:
             result = await self._run_once(self.fallback, run_fn)
             breaker.record_success(self.fallback)
+            self.last_provider_used = self.fallback
             return result
         except _GUARDRAIL_EXCEPTIONS:
             raise

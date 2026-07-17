@@ -31,6 +31,20 @@ def _reset_rate_limiter():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    """Same hazard as the rate limiter above: the F28 doctor cache
+    (core/cache.py) is a process-global singleton with a 60s TTL, while the
+    `session` fixture truncates every table between tests. Without this, a
+    search cached by one test would still be served to the next one — whose
+    DB no longer contains those doctors — and the failure would look like a
+    query bug rather than a stale cache."""
+    from app.core.cache import reset_cache_backend
+
+    reset_cache_backend()
+    yield
+
+
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 

@@ -28,6 +28,22 @@ class User(SQLModel, table=True):
         )
     )
     is_active: bool = Field(default=True)
+
+    # F27 account deletion. Two columns, not one, because they answer
+    # different questions: `deleted_at` is when the patient asked (audit,
+    # "when did this account go away"), `purge_after` is when the data
+    # actually goes. Storing the deadline rather than deriving it from
+    # deleted_at + 30d means a later change to the retention window can't
+    # retroactively shorten the grace period we already promised someone —
+    # and it keeps the sweep query a plain indexed range scan, matching the
+    # `expires_at` convention (CLAUDE.md rule 4: TTLs are DB columns +
+    # sweep jobs, never in-memory scheduler state).
+    deleted_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
+    purge_after: datetime | None = Field(
+        default=None, sa_column=utc_datetime_column(nullable=True, index=True)
+    )
+    purged_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
+
     created_at: datetime = Field(default_factory=_utcnow, sa_column=utc_datetime_column(nullable=False))
     updated_at: datetime = Field(default_factory=_utcnow, sa_column=utc_datetime_column(nullable=False))
 

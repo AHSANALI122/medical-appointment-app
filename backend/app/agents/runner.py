@@ -22,7 +22,8 @@ from app.llm.client import get_resilient_router
 from app.models.agent import AgentSession
 from app.models.enums import AgentRole
 from app.models.user import User
-from app.services import agent_session_service
+from app.services import agent_session_service, llm_usage_service
+from app.services.llm_usage_service import BudgetStatus
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,27 @@ LLM_UNAVAILABLE_MESSAGE = (
     "I'm down."
 )
 
+AGENTS_DISABLED_MESSAGE = (
+    "The assistant is temporarily unavailable right now. Please use the "
+    "search page to find and book a doctor directly — booking always works "
+    "even when the assistant is off."
+)
+
+
+def _record_llm_usage(session: Session, router, result) -> None:
+    provider = router.last_provider_used
+    if provider is None:
+        return
+    usage = result.context_wrapper.usage
+    llm_usage_service.record_usage(
+        session,
+        provider=provider.value,
+        requests=usage.requests,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+    )
+
 
 @dataclass
 class AgentTurnResult:
@@ -40,7 +62,7 @@ class AgentTurnResult:
     emergency: bool
 
 
-async def _call_llm(context: MedBookAgentContext, input_items: list[dict]):
+async def _call_llm(session: Session, context: MedBookAgentContext, input_items: list[dict]):
     router = get_resilient_router()
 
     async def run_fn(model):
@@ -49,7 +71,9 @@ async def _call_llm(context: MedBookAgentContext, input_items: list[dict]):
             triage_agent, input=input_items, context=context, run_config=RunConfig(model=model)
         )
 
-    return await router.run(run_fn)
+    result = await router.run(run_fn)
+    _record_llm_usage(session, router, result)
+    return result
 
 
 async def run_agent_turn(
@@ -79,6 +103,23 @@ async def run_agent_turn(
         logger.info("agent.emergency_keyword_trip", session_id=str(agent_session.id))
         return AgentTurnResult(reply=EMERGENCY_MESSAGE, draft_booking_id=None, emergency=True)
 
+    # F26 degradation ladder step 4: budget exhausted -> no LLM call at all,
+    # manual booking (search page) stays fully functional.
+    if llm_usage_service.get_budget_status(session) is BudgetStatus.EXCEEDED:
+        agent_session_service.append_message(
+            session, agent_session=agent_session, role=AgentRole.USER, content=user_message
+        )
+        agent_session_service.append_message(
+            session,
+            agent_session=agent_session,
+            role=AgentRole.ASSISTANT,
+            content=AGENTS_DISABLED_MESSAGE,
+            agent_name="budget_guard",
+        )
+        agent_session_service.touch(session, agent_session)
+        logger.warning("agent.budget_exceeded_disabled", session_id=str(agent_session.id))
+        return AgentTurnResult(reply=AGENTS_DISABLED_MESSAGE, draft_booking_id=None, emergency=False)
+
     history, _ = agent_session_service.list_messages(
         session, agent_session=agent_session, offset=0, limit=10_000
     )
@@ -91,7 +132,7 @@ async def run_agent_turn(
     )
 
     try:
-        result = await _call_llm(context, input_items)
+        result = await _call_llm(session, context, input_items)
     except InputGuardrailTripwireTriggered:
         reply = EMERGENCY_MESSAGE
         agent_session_service.append_message(

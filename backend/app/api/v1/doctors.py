@@ -26,7 +26,7 @@ from app.schemas.doctor import (
 )
 from app.schemas.pagination import Page, PageParams
 from app.schemas.review import ReviewRead
-from app.services import doctor_service, review_service
+from app.services import doctor_cache, doctor_service, review_service
 from app.services.doctor_service import DoctorSortOrder
 from app.services.slot_service import MAX_HORIZON, generate_available_slots, next_available_slot_for_doctor
 
@@ -38,6 +38,36 @@ def _specialization_read(session: Session, specialization_id: uuid.UUID) -> Spec
     if spec is None:
         raise NotFoundError("specialization not found")
     return SpecializationRead.model_validate(spec, from_attributes=True)
+
+
+def _users_by_id(session: Session, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, User]:
+    if not user_ids:
+        return {}
+    users = session.exec(select(User).where(User.id.in_(user_ids))).all()
+    return {user.id: user for user in users}
+
+
+def _specializations_by_id(
+    session: Session, specialization_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, SpecializationRead]:
+    """Batched `_specialization_read` for list endpoints. A page of doctors
+    usually shares a handful of specializations, so this collapses to one
+    query over the de-duplicated set."""
+    unique_ids = list(set(specialization_ids))
+    if not unique_ids:
+        return {}
+
+    specs = session.exec(
+        select(SpecializationTaxonomy).where(SpecializationTaxonomy.id.in_(unique_ids))
+    ).all()
+    resolved = {s.id: SpecializationRead.model_validate(s, from_attributes=True) for s in specs}
+
+    missing = set(unique_ids) - resolved.keys()
+    if missing:
+        # A doctor row pointing at a non-existent specialization is a broken
+        # FK, not a user error — surface it rather than rendering a blank.
+        raise NotFoundError("specialization not found")
+    return resolved
 
 
 @router.get("/specializations", response_model=list[SpecializationRead])
@@ -59,6 +89,23 @@ def search_doctors(
     params: PageParams = Depends(),
     session: Session = Depends(get_session),
 ) -> Page[DoctorSearchResult]:
+    # F28: search is the hottest read on the site and the most expensive
+    # (per-row rating + next-slot computation below), so it's cached for 60s
+    # and invalidated on any doctor write (doctor_cache.invalidate_doctor).
+    cache_key = doctor_cache.search_key(
+        specialization_id=specialization_id,
+        city=city,
+        fee_min=fee_min,
+        fee_max=fee_max,
+        name=name,
+        sort=sort.value,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    cached = doctor_cache.get_search(cache_key)
+    if cached is not None:
+        return Page[DoctorSearchResult].model_validate(cached)
+
     doctors, total = doctor_service.search_doctors(
         session,
         specialization_id=specialization_id,
@@ -70,27 +117,41 @@ def search_doctors(
         offset=params.offset,
         limit=params.page_size,
     )
+    # F28 N+1 prevention: users, clinics, ratings and specializations are
+    # fetched once for the whole page rather than per row. Before this, a
+    # 20-row page issued ~80 queries; the 60s cache above only hid that on
+    # the warm path, and every cache miss paid it in full.
+    doctor_ids = [d.id for d in doctors]
+    users = _users_by_id(session, [d.user_id for d in doctors])
+    locations_by_doctor = doctor_service.list_clinic_locations_for_doctors(session, doctor_ids)
+    ratings = review_service.get_doctor_rating_summaries(session, doctor_ids=doctor_ids)
+    specializations = _specializations_by_id(session, [d.specialization_id for d in doctors])
+
     results = []
     for doctor in doctors:
-        user = session.get(User, doctor.user_id)
-        locations = doctor_service.list_clinic_locations(session, doctor.id)
-        avg_rating, review_count = review_service.get_doctor_rating_summary(session, doctor_id=doctor.id)
+        user = users.get(doctor.user_id)
+        locations = locations_by_doctor.get(doctor.id, [])
+        avg_rating, review_count = ratings.get(doctor.id, (None, 0))
         results.append(
             DoctorSearchResult(
                 id=doctor.id,
                 full_name=user.full_name if user else "",
-                specialization=_specialization_read(session, doctor.specialization_id),
+                specialization=specializations[doctor.specialization_id],
                 consultation_fee=doctor.consultation_fee,
                 cities=sorted({loc.city for loc in locations}),
                 photo_url=doctor.photo_url,
-                # Computed only for this page's rows (bounded by page_size),
-                # never across the full doctor corpus — see slot_service.
+                # Still per-row: slot generation walks availability rules and
+                # existing bookings per doctor, so it can't collapse into one
+                # query as cheaply as the lookups above. Bounded by page_size
+                # and never computed across the full corpus — see slot_service.
                 next_available_slot_utc=next_available_slot_for_doctor(session, doctor_id=doctor.id),
                 average_rating=avg_rating,
                 review_count=review_count,
             )
         )
-    return Page.create(results, page=params.page, page_size=params.page_size, total=total)
+    page = Page.create(results, page=params.page, page_size=params.page_size, total=total)
+    doctor_cache.set_search(cache_key, page.model_dump(mode="json"))
+    return page
 
 
 @router.get("/{doctor_id}/reviews", response_model=Page[ReviewRead])
@@ -131,6 +192,7 @@ def update_my_profile(
     session.add(doctor)
     session.commit()
     session.refresh(doctor)
+    doctor_cache.invalidate_doctor(doctor.id)
     return _doctor_profile_read(session, doctor, user)
 
 
@@ -149,6 +211,8 @@ def add_clinic(
         city=body.city,
         map_embed_url=body.map_embed_url,
     )
+    # A new clinic changes the doctor's cities, which is a search filter.
+    doctor_cache.invalidate_doctor(doctor.id)
     return ClinicLocationRead.model_validate(location, from_attributes=True)
 
 
@@ -169,6 +233,7 @@ def update_clinic(
         city=body.city,
         map_embed_url=body.map_embed_url,
     )
+    doctor_cache.invalidate_doctor(doctor.id)
     return ClinicLocationRead.model_validate(location, from_attributes=True)
 
 
@@ -277,9 +342,18 @@ def add_availability_exception(
 
 @router.get("/{doctor_id}", response_model=DoctorProfileRead)
 def get_doctor_profile(doctor_id: uuid.UUID, session: Session = Depends(get_session)) -> DoctorProfileRead:
+    # F28: public profile page — cached 60s, invalidated on any write to
+    # this doctor. Note `/doctors/me` (the doctor's own view) deliberately
+    # is not cached: they must see their own edit land immediately.
+    cached = doctor_cache.get_profile(doctor_id)
+    if cached is not None:
+        return DoctorProfileRead.model_validate(cached)
+
     doctor = doctor_service.get_doctor_profile_or_404(session, doctor_id)
     user = session.get(User, doctor.user_id)
-    return _doctor_profile_read(session, doctor, user)
+    profile = _doctor_profile_read(session, doctor, user)
+    doctor_cache.set_profile(doctor_id, profile.model_dump(mode="json"))
+    return profile
 
 
 @router.get("/{doctor_id}/slots", response_model=list[SlotRead])

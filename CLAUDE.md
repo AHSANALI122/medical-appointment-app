@@ -87,6 +87,12 @@ SMS_GATEWAY_KEY (stub-able in dev),
 FRONTEND_ORIGIN
 ```
 
+Frontend env lives in `frontend/.env.local` (see `frontend/.env.example`):
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_ENVIRONMENT`,
+plus build-time-only `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN`.
+Sentry's browser DSN **must** be `NEXT_PUBLIC_`-prefixed — Next.js won't
+expose an unprefixed var to client code.
+
 ## Commands
 ```bash
 # backend
@@ -94,8 +100,34 @@ cd backend && uv sync && uv run uvicorn app.main:app --reload
 uv run pytest                      # all tests
 uv run pytest -m "not live_llm"    # CI-safe
 uv run alembic upgrade head
+uv run python scripts/seed_demo.py # F29: 20 doctors + patients + admin (refuses in prod)
 
 # frontend
 cd frontend && npm i && npm run dev
 npm run lint && npm run typecheck
+npm run e2e:critical               # F30 critical-path e2e (needs backend + seed)
+npm run e2e                        # full e2e suite
+
+# load test (F28) — needs a seeded target, never production
+cd backend && k6 run loadtest/booking_load_test.js
 ```
+
+**Tests share one remote Neon database** (`medbook_test`). Never run two
+pytest sessions at once — the session-scoped `test_engine` fixture drops
+tables on exit and will yank them out from under a concurrent run, producing
+a wall of fake `ObjectDeletedError`s. If a run is killed before its teardown
+and you've since changed a model, reset the schema (`create_all` only creates
+missing *tables*, it never adds columns to existing ones):
+
+```bash
+uv run python -c "
+import psycopg; from app.core.config import get_settings
+b = get_settings().database_url.replace('postgresql+psycopg://','postgresql://')
+with psycopg.connect(b.rsplit('/',1)[0]+'/medbook_test', autocommit=True) as c:
+    c.execute('DROP SCHEMA public CASCADE'); c.execute('CREATE SCHEMA public')"
+```
+
+## Production Layer Docs (F26–F30)
+- `docs/observability.md` — logging, Sentry, uptime monitor setup, `/metrics`, LLM degradation ladder
+- `docs/data-safety.md` — Neon PITR, weekly restore drill, migration safety, deletion/export policy
+- `docs/releases.md` — feature flags, expand-contract, deploy/rollback, staging promotion, test gates

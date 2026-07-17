@@ -142,6 +142,7 @@ class BookingStateMachine:
 
         booking.status = BookingStatus.PENDING
         booking.expires_at = _pending_ttl(booking.start_time_utc)
+        booking.pending_at = now_utc()
         booking.updated_at = now_utc()
         self.session.add(booking)
         self.session.commit()
