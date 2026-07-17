@@ -2,7 +2,7 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models.enums import DoctorVerificationStatus, UserRole
+from app.models.enums import DoctorVerificationStatus, NotificationPreference, UserRole
 
 
 class RegisterPatientRequest(BaseModel):
@@ -33,6 +33,11 @@ class UserPublic(BaseModel):
     full_name: str
     role: UserRole
     phone: str | None = None
+    notification_preference: NotificationPreference = NotificationPreference.DEFAULT
+
+
+class UpdateNotificationPreferenceRequest(BaseModel):
+    notification_preference: NotificationPreference
 
 
 class DoctorRegisterResponse(BaseModel):

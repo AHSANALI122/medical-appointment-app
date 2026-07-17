@@ -70,6 +70,11 @@ class FollowUpStatus(StrEnum):
     DEFERRED = "deferred"
 
 
+class NotificationPreference(StrEnum):
+    DEFAULT = "default"
+    SMS_FIRST = "sms_first"
+
+
 class Weekday(StrEnum):
     MON = "mon"
     TUE = "tue"

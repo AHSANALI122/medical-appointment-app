@@ -1,9 +1,11 @@
 from app.models.agent import AgentMessage, AgentSession
 from app.models.audit_log import AuditLog
 from app.models.booking import Booking
+from app.models.dead_letter import DeadLetterJob
 from app.models.doctor import AvailabilityException, AvailabilityRule, ClinicLocation, DoctorProfile
 from app.models.feature_flag import FeatureFlag
 from app.models.followup import FollowUp
+from app.models.medical_history import MedicalHistory
 from app.models.note import ClinicalNote, PatientNote
 from app.models.notification import Notification
 from app.models.reminder import ReminderLog
@@ -25,6 +27,8 @@ __all__ = [
     "Notification",
     "PatientNote",
     "ClinicalNote",
+    "MedicalHistory",
+    "DeadLetterJob",
     "Review",
     "ReminderLog",
     "AuditLog",

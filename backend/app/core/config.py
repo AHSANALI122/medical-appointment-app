@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     upstash_redis_url: str = ""
     upstash_redis_token: str = ""
     sms_gateway_key: str = ""
+    resend_webhook_secret: str = ""
 
     frontend_origin: str = "http://localhost:3000"
 

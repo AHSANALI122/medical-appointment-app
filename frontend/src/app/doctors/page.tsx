@@ -99,7 +99,10 @@ export default function DoctorsPage() {
             href={`/doctors/${doctor.id}`}
             className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md"
           >
-            <p className="font-semibold text-slate-900">{doctor.full_name}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-semibold text-slate-900">{doctor.full_name}</p>
+              <span className="whitespace-nowrap text-xs text-teal-700">✓ PMC Verified</span>
+            </div>
             <p className="text-sm text-slate-600">{doctor.specialization.name_en}</p>
             <p className="mt-2 text-sm text-slate-500">
               {doctor.cities.join(", ") || "Location not set"}

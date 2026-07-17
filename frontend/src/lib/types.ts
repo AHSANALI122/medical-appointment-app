@@ -16,12 +16,15 @@ export type BookingSource = "user" | "system_waitlist";
 export type CancelledBy = "patient" | "doctor" | "admin";
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
+export type NotificationPreference = "default" | "sms_first";
+
 export interface UserPublic {
   id: string;
   email: string;
   full_name: string;
   role: UserRole;
   phone: string | null;
+  notification_preference: NotificationPreference;
 }
 
 export interface DoctorRegisterResponse {
@@ -273,5 +276,20 @@ export interface PatientProfileRead {
   relationship_label: string;
   date_of_birth: string | null;
   is_active: boolean;
+  created_at: string;
+}
+
+// --- F24: patient medical history -----------------------------------------
+
+export interface MedicalHistoryRead {
+  id: string;
+  patient_profile_id: string;
+  version: number;
+  blood_group: string | null;
+  allergies: string | null;
+  medications: string | null;
+  chronic_conditions: string | null;
+  surgeries: string | null;
+  edited_by_user_id: string;
   created_at: string;
 }

@@ -19,3 +19,12 @@ class NotificationRead(BaseModel):
 
 class UnreadCountRead(BaseModel):
     unread_count: int
+
+
+class EmailBounceWebhook(BaseModel):
+    """Shape modeled on Resend's bounce/delivery-failure webhook payload:
+    https://resend.com/docs/dashboard/webhooks/event-types — trimmed to the
+    two fields the fallback logic actually needs."""
+
+    provider_message_id: str
+    reason: str = "bounced"

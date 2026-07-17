@@ -5,7 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { BookingRead, ClinicLocationRead, DoctorProfileRead, Page, Weekday } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ClinicalNoteEditor, PatientNoteViewer } from "@/components/NoteWidgets";
+import { ClinicalNoteEditor, MedicalHistoryViewer, PatientNoteViewer } from "@/components/NoteWidgets";
 import { AIDraftHelper, FollowUpForm } from "@/components/DoctorSmartTools";
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
@@ -142,6 +142,7 @@ export default function DoctorDashboardPage() {
               <p className="text-sm text-slate-600">{booking.address_snapshot}</p>
               <p className="text-sm text-slate-600">Fee: Rs. {booking.fee_charged}</p>
               <PatientNoteViewer bookingId={booking.id} />
+              <MedicalHistoryViewer bookingId={booking.id} />
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => handleAccept(booking.id)}
@@ -178,6 +179,9 @@ export default function DoctorDashboardPage() {
                 <p className="font-medium">{new Date(booking.start_time_utc).toLocaleString()}</p>
                 <p className="text-sm text-slate-500">{booking.address_snapshot}</p>
                 <PatientNoteViewer bookingId={booking.id} />
+                {(booking.status === "pending" ||
+                  booking.status === "confirmed" ||
+                  booking.status === "completed") && <MedicalHistoryViewer bookingId={booking.id} />}
                 {(booking.status === "confirmed" || booking.status === "completed") && (
                   <>
                     <ClinicalNoteEditor

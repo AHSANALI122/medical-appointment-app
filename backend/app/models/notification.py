@@ -42,4 +42,10 @@ class Notification(SQLModel, table=True):
     body: str
     read_at: datetime | None = Field(default=None, sa_column=utc_datetime_column(nullable=True))
 
+    # F25: correlates an EMAIL row with the provider's bounce/delivery
+    # webhook (Resend sends this back as `data.email_id`); FAILED rows carry
+    # why, so the delivery report (per booking, per channel) is meaningful.
+    provider_message_id: str | None = Field(default=None, index=True)
+    failure_reason: str | None = None
+
     created_at: datetime = Field(default_factory=_utcnow, sa_column=utc_datetime_column(nullable=False))

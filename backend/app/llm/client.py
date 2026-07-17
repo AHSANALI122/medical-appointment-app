@@ -100,15 +100,30 @@ def get_agent_model(provider: LLMProvider):
 
 
 def configure_tracing() -> None:
-    """Agents SDK tracing exports to the OpenAI backend by default, which
-    requires an OpenAI API key even when the run itself uses Gemini. Without
-    any key configured (dev/CI with no live keys), disable tracing entirely
-    rather than let every run attempt — and fail — a network call. Mirrors
-    the existing 'stub in dev' pattern (notification_service._send_email_stub)."""
+    """F21 — traces (sessions, handoffs, tool calls, tokens, latency) export
+    to LangSmith when LANGSMITH_API_KEY is configured, via the Agents SDK's
+    pluggable TracingProcessor hook: `set_trace_processors` replaces the
+    default OpenAI-backend exporter outright, so there's one tracing
+    destination, not two half-configured ones.
+
+    Without a LangSmith key, tracing exports to the OpenAI backend by
+    default, which requires an OpenAI API key even when the run itself uses
+    Gemini. Without *any* key configured (dev/CI with no live keys), disable
+    tracing entirely rather than let every run attempt — and fail — a
+    network call. Mirrors the existing 'stub in dev' pattern
+    (notification_service._send_email_stub)."""
     import agents
 
     settings = get_settings()
-    if settings.openai_api_key:
+    if settings.langsmith_api_key:
+        from langsmith import Client
+        from langsmith.integrations.openai_agents_sdk import OpenAIAgentsTracingProcessor
+
+        client = Client(api_key=settings.langsmith_api_key)
+        agents.set_trace_processors(
+            [OpenAIAgentsTracingProcessor(client=client, project_name=settings.langsmith_project)]
+        )
+    elif settings.openai_api_key:
         agents.set_tracing_export_api_key(settings.openai_api_key)
     else:
         agents.set_tracing_disabled(True)

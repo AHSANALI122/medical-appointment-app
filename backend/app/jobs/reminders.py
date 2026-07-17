@@ -21,9 +21,11 @@ from app.models.booking import Booking
 from app.models.enums import BookingStatus
 from app.models.reminder import ReminderLog, ReminderOffset
 from app.models.user import PatientProfile
-from app.services import notification_service
+from app.services import dead_letter_service, notification_service
 
 logger = get_logger(__name__)
+
+JOB_TYPE = "reminder"
 
 # Must exceed the sweep interval (main.py runs this every 5 min) so a booking
 # crossing the threshold between two ticks is never skipped.
@@ -75,16 +77,27 @@ def send_due_reminders(session: Session) -> int:
             patient_profile = session.get(PatientProfile, booking.patient_profile_id)
             if patient_profile is not None:
                 label = "24 hours" if offset == ReminderOffset.T_24H else "1 hour"
-                notification_service.notify_user(
-                    session,
-                    user_id=patient_profile.user_id,
-                    booking=booking,
-                    title="Appointment reminder",
-                    body=(
-                        f"Your appointment is in {label}, on "
-                        f"{booking.start_time_utc.isoformat()} at {booking.address_snapshot}."
-                    ),
-                )
+                try:
+                    notification_service.notify_user(
+                        session,
+                        user_id=patient_profile.user_id,
+                        booking=booking,
+                        title="Appointment reminder",
+                        body=(
+                            f"Your appointment is in {label}, on "
+                            f"{booking.start_time_utc.isoformat()} at {booking.address_snapshot}."
+                        ),
+                    )
+                except Exception as exc:  # noqa: BLE001 — a notifier failure must not crash the sweep
+                    session.rollback()
+                    dead_letter_service.record_failure(
+                        session, job_type=JOB_TYPE, reference_id=booking.id, error=str(exc)
+                    )
+                    dead_letter_service.maybe_alert(session, job_type=JOB_TYPE)
+                    logger.error(
+                        "reminder.send_failed", booking_id=str(booking.id), offset=offset.value, error=str(exc)
+                    )
+                    continue
             sent_count += 1
             logger.info("reminder.sent", booking_id=str(booking.id), offset=offset.value)
 

@@ -60,6 +60,28 @@ def test_me_returns_current_user_after_login(client):
     assert resp.json()["email"] == "me@example.com"
 
 
+def test_update_notification_preference(client):
+    client.post(
+        "/api/v1/auth/register/patient",
+        json={"email": "prefs@example.com", "password": "password123", "full_name": "Prefs"},
+    )
+    assert client.get("/api/v1/auth/me").json()["notification_preference"] == "default"
+
+    resp = client.put(
+        "/api/v1/auth/me/notification-preference", json={"notification_preference": "sms_first"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["notification_preference"] == "sms_first"
+    assert client.get("/api/v1/auth/me").json()["notification_preference"] == "sms_first"
+
+
+def test_update_notification_preference_requires_auth(client):
+    resp = client.put(
+        "/api/v1/auth/me/notification-preference", json={"notification_preference": "sms_first"}
+    )
+    assert resp.status_code == 401
+
+
 def test_refresh_rotates_token_and_old_one_is_revoked(client):
     client.post(
         "/api/v1/auth/register/patient",

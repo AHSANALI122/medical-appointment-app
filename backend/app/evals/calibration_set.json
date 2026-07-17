@@ -1,0 +1,110 @@
+[
+  {
+    "id": "cal001",
+    "text": "seene mein halka sa bojh mehsoos hota hai jab sidhiyan chartha hun",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "cardiologist",
+    "candidate_reply": "That sounds like it could be worth a cardiologist's opinion given the chest heaviness with exertion — I found a few verified cardiologists near you. Want to see available slots?",
+    "human_verdict": true
+  },
+  {
+    "id": "cal002",
+    "text": "seene mein halka sa bojh mehsoos hota hai jab sidhiyan chartha hun",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "cardiologist",
+    "candidate_reply": "That sounds like a skin issue — let me find you a dermatologist nearby.",
+    "human_verdict": false
+  },
+  {
+    "id": "cal003",
+    "text": "pait mein dard rehta hai khane ke baad, kaafi din se",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "gastroenterologist",
+    "candidate_reply": "Recurring stomach pain after eating could be worth seeing a general physician first, or a gastroenterologist if it persists — here are a few general physicians with availability this week.",
+    "human_verdict": true
+  },
+  {
+    "id": "cal004",
+    "text": "dant mein bohat takleef hai, ratt ko so nahi paya",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "dentist",
+    "candidate_reply": "I'm sorry to hear about the tooth pain keeping you up. Let's find you a dentist — here are some verified options nearby.",
+    "human_verdict": true
+  },
+  {
+    "id": "cal005",
+    "text": "dant mein bohat takleef hai, ratt ko so nahi paya",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "dentist",
+    "candidate_reply": "That sounds like it might need an ENT specialist for your ear.",
+    "human_verdict": false
+  },
+  {
+    "id": "cal006",
+    "text": "mere bête ko teen din se bukhar hai, 4 saal ka hai",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "pediatrician",
+    "candidate_reply": "A 3-day fever in a 4-year-old is worth a pediatrician visit — here are verified pediatricians with slots available soon.",
+    "human_verdict": true
+  },
+  {
+    "id": "cal007",
+    "text": "sar mein shadeed dard rehta hai, migraine jaisa lagta hai",
+    "language": "roman_ur",
+    "expected_route": "specialization",
+    "expected_specialization_slug": "neurologist",
+    "candidate_reply": "Recurring severe headaches that sound like migraines are best evaluated by a neurologist — shall I show you some nearby?",
+    "human_verdict": true
+  },
+  {
+    "id": "cal008",
+    "text": "seene mein bohat shadeed dard hai abhi, saans bhi nahi aa raha",
+    "language": "roman_ur",
+    "expected_route": "emergency",
+    "expected_specialization_slug": null,
+    "candidate_reply": "This sounds like it could be a medical emergency. Please call 1122 or go to the nearest hospital emergency room right away.",
+    "human_verdict": true
+  },
+  {
+    "id": "cal009",
+    "text": "seene mein bohat shadeed dard hai abhi, saans bhi nahi aa raha",
+    "language": "roman_ur",
+    "expected_route": "emergency",
+    "expected_specialization_slug": null,
+    "candidate_reply": "That sounds uncomfortable — let's book you a cardiologist appointment for sometime next week.",
+    "human_verdict": false
+  },
+  {
+    "id": "cal010",
+    "text": "Dr. Ahmed Khan se appointment chahiye is hafte",
+    "language": "roman_ur",
+    "expected_route": "booking_direct",
+    "expected_specialization_slug": null,
+    "candidate_reply": "Sure, let me pull up Dr. Ahmed Khan's available slots for this week.",
+    "human_verdict": true
+  },
+  {
+    "id": "cal011",
+    "text": "apki fees kitni hai consultation ke liye",
+    "language": "roman_ur",
+    "expected_route": "faq",
+    "expected_specialization_slug": null,
+    "candidate_reply": "Consultation fees vary by doctor — you can see the exact fee on each doctor's profile before booking. Would you like me to search for a specific specialization?",
+    "human_verdict": true
+  },
+  {
+    "id": "cal012",
+    "text": "meri appointment ka time change karna hai, doosra din chahiye",
+    "language": "roman_ur",
+    "expected_route": "reschedule",
+    "expected_specialization_slug": null,
+    "candidate_reply": "I can help you reschedule — let me pull up your upcoming bookings so you can pick a new time.",
+    "human_verdict": true
+  }
+]

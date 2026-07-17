@@ -44,6 +44,72 @@ jobs:
         run: uv run ruff check .
       - name: Test (CI-safe, excludes live_llm)
         run: uv run pytest -m "not live_llm"
+      - name: Agent eval report (deterministic — emergency recall gate)
+        run: uv run python -m app.evals.run_emergency_eval
+      - name: Upload eval report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: backend/app/evals/reports/emergency_eval_report.json
+
+  agent-evals-live:
+    # F21 acceptance: "eval report artifact attached to every agent-touching
+    # PR." The deterministic emergency-recall gate above runs unconditionally
+    # (no API key needed); this job additionally runs the full live-LLM
+    # triage-accuracy + full-pipeline emergency-recall eval, but only when a
+    # provider key is actually available — a fork PR or a repo without
+    # GEMINI_API_KEY configured must not fail CI over a missing secret.
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medbook
+          POSTGRES_PASSWORD: medbook
+          POSTGRES_DB: medbook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medbook -d medbook"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://medbook:medbook@localhost:5432/medbook
+      JWT_SECRET: ci-only-not-a-real-secret
+      ENCRYPTION_KEY: sOyeA2Z9A26_msHUUldM93Ubl2ZwHnfE3D7Dcf11a-0=
+      ENVIRONMENT: test
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      LLM_PRIMARY: gemini
+      LLM_FALLBACK: gemini
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync
+      - name: Skip (no LLM key configured)
+        if: ${{ env.GEMINI_API_KEY == '' }}
+        run: echo "GEMINI_API_KEY not set on this repo — skipping live triage eval."
+      - name: Run migrations
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        run: uv run alembic upgrade head
+      - name: Live triage eval (gates on accuracy >=90%, emergency recall >=99%)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        run: uv run pytest tests/evals/test_triage_eval_live.py -m live_llm -q
+      - name: Upload live eval report artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        with:
+          name: triage-eval-report
+          path: backend/app/evals/reports/triage_eval_report.json
 
   frontend:
     runs-on: ubuntu-latest

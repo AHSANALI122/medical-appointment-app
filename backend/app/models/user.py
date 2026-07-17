@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlmodel import Field, SQLModel
 
 from app.core.db_types import utc_datetime_column
-from app.models.enums import UserRole, enum_column
+from app.models.enums import NotificationPreference, UserRole, enum_column
 
 
 def _utcnow() -> datetime:
@@ -20,6 +20,13 @@ class User(SQLModel, table=True):
     role: UserRole = Field(sa_column=enum_column(UserRole, nullable=False, index=True))
     full_name: str
     phone: str | None = None
+    # F25: 'sms_first' skips straight to SMS instead of waiting on an email
+    # bounce; 'default' is the in-app -> email -> (SMS on bounce/failure) path.
+    notification_preference: NotificationPreference = Field(
+        sa_column=enum_column(
+            NotificationPreference, nullable=False, default=NotificationPreference.DEFAULT.value
+        )
+    )
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=_utcnow, sa_column=utc_datetime_column(nullable=False))
     updated_at: datetime = Field(default_factory=_utcnow, sa_column=utc_datetime_column(nullable=False))

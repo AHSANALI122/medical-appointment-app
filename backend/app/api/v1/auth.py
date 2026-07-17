@@ -11,6 +11,7 @@ from app.schemas.auth import (
     LoginRequest,
     RegisterDoctorRequest,
     RegisterPatientRequest,
+    UpdateNotificationPreferenceRequest,
     UserPublic,
 )
 from app.services import auth_service
@@ -105,4 +106,19 @@ def logout(
 
 @router.get("/me", response_model=UserPublic)
 def me(user=Depends(get_current_user)) -> UserPublic:
+    return UserPublic.model_validate(user, from_attributes=True)
+
+
+@router.put("/me/notification-preference", response_model=UserPublic)
+def update_notification_preference(
+    body: UpdateNotificationPreferenceRequest,
+    user=Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> UserPublic:
+    """F25 — the only escape hatch a patient/doctor has to switch to
+    SMS-first delivery ahead of any bounce; identity from JWT as always."""
+    user.notification_preference = body.notification_preference
+    session.add(user)
+    session.commit()
+    session.refresh(user)
     return UserPublic.model_validate(user, from_attributes=True)

@@ -40,7 +40,7 @@ EMERGENCY_KEYWORDS: tuple[str, ...] = (
     "suicidal", "kill myself", "overdose", "choking",
     # Roman Urdu
     "seene mein dard", "seenay mein dard", "seny mein dard",
-    "saans nahi", "saans lene mein", "saans rukh", "saans band",
+    "saans nahi", "saans bhi nahi", "saans lene mein", "saans rukh", "saans band",
     "behosh", "be hosh", "khoon beh raha", "zyada khoon", "dil ka dora",
     "dora para", "marne wala", "khudkushi",
     # Urdu script

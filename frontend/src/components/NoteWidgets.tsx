@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { ClinicalNoteRead, PatientNoteRead } from "@/lib/types";
+import type { ClinicalNoteRead, MedicalHistoryRead, PatientNoteRead } from "@/lib/types";
 
 /** Patient's own reason/symptoms note (F6) — editable by the owning patient. */
 export function PatientNoteEditor({ bookingId }: { bookingId: string }) {
@@ -211,5 +211,43 @@ export function ClinicalNoteViewer({ bookingId }: { bookingId: string }) {
       <span className="font-medium text-slate-700">Doctor&apos;s note: </span>
       {content}
     </p>
+  );
+}
+
+/** F24 — doctor's read-only view of the patient's medical history, gated
+ * server-side to the 12-month active-booking window; renders nothing if
+ * the doctor's access has lapsed (403) or the patient never filled it in (404). */
+export function MedicalHistoryViewer({ bookingId }: { bookingId: string }) {
+  const [history, setHistory] = useState<MedicalHistoryRead | null>(null);
+
+  useEffect(() => {
+    api
+      .get<MedicalHistoryRead>(`/api/v1/bookings/${bookingId}/medical-history`)
+      .then(setHistory)
+      .catch(() => {});
+  }, [bookingId]);
+
+  if (!history) return null;
+  const rows: [string, string | null][] = [
+    ["Blood group", history.blood_group],
+    ["Allergies", history.allergies],
+    ["Medications", history.medications],
+    ["Chronic conditions", history.chronic_conditions],
+    ["Surgeries", history.surgeries],
+  ].filter(([, value]) => value) as [string, string | null][];
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded-md bg-slate-50 p-2 text-sm text-slate-600">
+      <span className="font-medium text-slate-700">Medical history</span>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {rows.map(([label, value]) => (
+          <li key={label}>
+            <span className="text-slate-500">{label}:</span> {value}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

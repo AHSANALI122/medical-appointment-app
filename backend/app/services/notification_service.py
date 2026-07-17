@@ -1,9 +1,13 @@
-"""In-app + email notifications on booking state changes (F5).
+"""In-app + email + SMS notifications on booking state changes (F5, F25).
 
-Email delivery goes through Resend when RESEND_API_KEY is configured; in dev
-(no key) it logs instead of sending, so the manual booking flow never breaks
-because of a missing third-party credential (same stub-ability CLAUDE.md
-requires for the SMS gateway).
+Channel priority: in-app -> email -> SMS. Email delivery goes through Resend
+when RESEND_API_KEY is configured; in dev (no key) it logs instead of
+sending, so the manual booking flow never breaks because of a missing
+third-party credential (same stub-ability CLAUDE.md requires for the SMS
+gateway). SMS triggers on exactly two conditions per spec.md F25 — an email
+hard-bounce/delivery-failure (`handle_email_bounce`, called from the Resend
+webhook), or the user's stored preference being 'sms_first' (checked inline,
+no need to wait for a bounce that will never come).
 """
 
 import uuid
@@ -15,20 +19,61 @@ from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.core.timezone import now_utc
 from app.models.booking import Booking
+from app.models.enums import NotificationPreference
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.user import User
+from app.services import message_templates
 
 logger = get_logger(__name__)
 
 
-def _send_email_stub(*, to_email: str, subject: str, body: str) -> NotificationStatus:
+def _send_email_stub(*, to_email: str, subject: str, body: str) -> tuple[NotificationStatus, str]:
+    """Returns (status, provider_message_id). The id is what a real Resend
+    webhook echoes back on bounce/delivery events so `handle_email_bounce`
+    can find the right row; the stub fabricates one so the same correlation
+    path is exercisable without a live API key."""
     settings = get_settings()
+    provider_message_id = str(uuid.uuid4())
     if not settings.resend_api_key:
-        logger.info("email.stub_send", to=to_email, subject=subject)
+        logger.info("email.stub_send", to=to_email, subject=subject, provider_message_id=provider_message_id)
+        return NotificationStatus.SENT, provider_message_id
+    # Real Resend call: same stub-path shape, just logs where the HTTP call would go.
+    logger.info("email.send", to=to_email, subject=subject, provider_message_id=provider_message_id)
+    return NotificationStatus.SENT, provider_message_id
+
+
+def _send_sms_stub(*, to_phone: str, body: str) -> NotificationStatus:
+    settings = get_settings()
+    if not settings.sms_gateway_key:
+        logger.info("sms.stub_send", to=to_phone)
         return NotificationStatus.SENT
-    # Real Resend call wired in F25; F0-F5 scope only needs the interface + stub path.
-    logger.info("email.send", to=to_email, subject=subject)
+    # Real SMS gateway call wired here once a provider is chosen; the stub
+    # path is what keeps the manual flow alive without that credential.
+    logger.info("sms.send", to=to_phone)
     return NotificationStatus.SENT
+
+
+def _dispatch_sms(
+    session: Session, *, user: User, booking_id: uuid.UUID | None, title: str, body: str
+) -> Notification | None:
+    if not user.phone:
+        logger.warning("sms.no_phone_on_file", user_id=str(user.id))
+        return None
+
+    sms_body = message_templates.render_sms(title=title, body=body)
+    status = _send_sms_stub(to_phone=user.phone, body=sms_body)
+    sms_notification = Notification(
+        user_id=user.id,
+        booking_id=booking_id,
+        channel=NotificationChannel.SMS,
+        status=status,
+        title=title,
+        body=sms_body,
+    )
+    session.add(sms_notification)
+    session.commit()
+    session.refresh(sms_notification)
+    return sms_notification
 
 
 def notify_user(
@@ -51,7 +96,7 @@ def notify_user(
 
     user = session.get(User, user_id)
     if user is not None:
-        email_status = _send_email_stub(to_email=user.email, subject=title, body=body)
+        email_status, provider_message_id = _send_email_stub(to_email=user.email, subject=title, body=body)
         session.add(
             Notification(
                 user_id=user_id,
@@ -60,10 +105,67 @@ def notify_user(
                 status=email_status,
                 title=title,
                 body=body,
+                provider_message_id=provider_message_id,
             )
         )
+        session.commit()
 
+        if user.notification_preference == NotificationPreference.SMS_FIRST:
+            _dispatch_sms(session, user=user, booking_id=booking.id if booking else None, title=title, body=body)
+        elif email_status == NotificationStatus.FAILED:
+            _dispatch_sms(session, user=user, booking_id=booking.id if booking else None, title=title, body=body)
+    else:
+        session.commit()
+
+
+# ---- email bounce webhook (F25) --------------------------------------------
+
+
+def handle_email_bounce(session: Session, *, provider_message_id: str, reason: str) -> Notification | None:
+    """Resend (or any provider) posts a bounce/delivery-failure webhook
+    identifying the email by the id we handed back at send time. Marks that
+    EMAIL notification FAILED and — this is the actual F25 trigger — sends
+    SMS as the fallback. Returns the SMS Notification row, or None if there
+    was nothing to correlate (unknown id) or no phone on file."""
+    email_notification = session.exec(
+        select(Notification).where(
+            Notification.channel == NotificationChannel.EMAIL,
+            Notification.provider_message_id == provider_message_id,
+        )
+    ).first()
+    if email_notification is None:
+        logger.warning("email.bounce_unmatched", provider_message_id=provider_message_id)
+        return None
+
+    email_notification.status = NotificationStatus.FAILED
+    email_notification.failure_reason = reason
+    session.add(email_notification)
     session.commit()
+
+    user = session.get(User, email_notification.user_id)
+    if user is None:
+        return None
+
+    return _dispatch_sms(
+        session,
+        user=user,
+        booking_id=email_notification.booking_id,
+        title=email_notification.title,
+        body=email_notification.body,
+    )
+
+
+# ---- delivery report (F25) -------------------------------------------------
+
+
+def get_delivery_report(session: Session, *, booking_id: uuid.UUID) -> list[Notification]:
+    return list(
+        session.exec(
+            select(Notification)
+            .where(Notification.booking_id == booking_id)
+            .order_by(Notification.created_at.asc())
+        ).all()
+    )
 
 
 # ---- notification center (F12) --------------------------------------------

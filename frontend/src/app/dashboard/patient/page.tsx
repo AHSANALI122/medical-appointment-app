@@ -10,6 +10,8 @@ import { ClinicalNoteViewer, PatientNoteEditor } from "@/components/NoteWidgets"
 import { ReviewForm } from "@/components/ReviewForm";
 import { FamilyProfiles } from "@/components/FamilyProfiles";
 import { WaitlistPanel } from "@/components/WaitlistPanel";
+import { MedicalHistoryPanel } from "@/components/MedicalHistoryPanel";
+import { NotificationPreferenceToggle } from "@/components/NotificationPreferenceToggle";
 
 const CANCELLABLE: BookingRead["status"][] = ["pending", "confirmed"];
 
@@ -171,6 +173,8 @@ export default function PatientDashboardPage() {
       <div className="mt-10 flex flex-col gap-8">
         <WaitlistPanel />
         <FamilyProfiles />
+        <MedicalHistoryPanel />
+        <NotificationPreferenceToggle />
       </div>
     </div>
   );
