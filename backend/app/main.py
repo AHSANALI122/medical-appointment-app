@@ -185,6 +185,26 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 app.include_router(api_router)
 
 
+@app.get("/", include_in_schema=False)
+def root() -> dict:
+    """Landing payload for the API root.
+
+    The backend serves JSON under `/api/v1`, not web pages — the app UI lives
+    on the frontend (FRONTEND_ORIGIN). Hitting the bare host used to return a
+    bald `{"detail":"Not Found"}`, which reads like a bug; this points callers
+    at the real entry points instead.
+    """
+    return {
+        "service": "MedBook API",
+        "version": app.version,
+        "status": "ok",
+        "app_url": settings.frontend_origin,
+        "docs": "/docs" if _docs_are_public else "disabled_in_production",
+        "health": "/health",
+        "api_base": "/api/v1",
+    }
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     """Public (unauthenticated) — this is what the external uptime monitor
