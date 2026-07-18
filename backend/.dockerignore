@@ -1,0 +1,22 @@
+# Build artifacts / caches
+.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# VCS & local config
+.git/
+.gitignore
+.env
+.env.*
+
+# Not needed in the runtime image
+tests/
+loadtest/
+scripts/
+alembic/versions/__pycache__/
+Dockerfile
+.dockerignore

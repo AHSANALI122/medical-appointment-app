@@ -1,0 +1,23 @@
+# Dependencies & build output (rebuilt inside the image)
+node_modules/
+.next/
+out/
+
+# Local env (NEXT_PUBLIC_* come in as build args instead)
+.env
+.env.*.local
+.env.local
+
+# Tests & reports — not part of the runtime image
+e2e/
+test-results/
+playwright-report/
+playwright.config.ts
+
+# VCS & tooling
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+npm-debug.log*
+*.tsbuildinfo

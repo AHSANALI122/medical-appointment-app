@@ -2,7 +2,10 @@ import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Emit a self-contained server bundle (server.js + only the node_modules
+  // files actually traced as used) so the production Docker image can ship
+  // without the full dependency tree. See frontend/Dockerfile.
+  output: "standalone",
 };
 
 // Source maps upload only when SENTRY_AUTH_TOKEN is present, so forks, local

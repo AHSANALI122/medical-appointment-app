@@ -16,5 +16,36 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    # Secrets (JWT_SECRET, ENCRYPTION_KEY, LLM keys, …) come from ./.env.
+    # DATABASE_URL is overridden below to point at the compose `db` service so
+    # the stack is self-contained; drop it to use the value from .env (e.g. Neon).
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://medbook:medbook@db:5432/medbook
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* are inlined at build time — point the browser at the
+        # backend's public URL (localhost for a local stack).
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_ENVIRONMENT: production
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   medbook_pg_data:
