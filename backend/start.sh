@@ -6,4 +6,6 @@ set -e
 
 alembic upgrade head
 
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Honor $PORT when the platform injects one (Render); default to 8000 so local
+# docker-compose and other hosts keep working unchanged.
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

@@ -1,0 +1,40 @@
+# Render Blueprint — MedBook FastAPI backend (frontend deploys separately on Vercel).
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Render reads
+# this file, then prompts for the `sync: false` secret values (they are NOT
+# stored in the repo). First boot runs `alembic upgrade head` then uvicorn
+# (see backend/start.sh), which binds Render's injected $PORT.
+services:
+  - type: web
+    name: medbook-backend
+    runtime: docker
+    plan: free            # no credit card required; sleeps after ~15 min idle
+    region: singapore     # closest free region to Pakistan (also: frankfurt, oregon)
+    branch: deploy/huggingface-vercel
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend   # build context = backend/, so the Dockerfile's paths resolve
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LLM_PRIMARY
+        value: gemini
+      - key: LLM_FALLBACK
+        value: openai
+      # Secrets — entered in the Render UI at blueprint creation, never committed.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # Set to your Vercel production URL once the frontend is deployed. CORS also
+      # allows *.vercel.app via allow_origin_regex, so previews work regardless.
+      - key: FRONTEND_ORIGIN
+        sync: false
