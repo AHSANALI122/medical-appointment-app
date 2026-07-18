@@ -3,12 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { dashboardPathForRole } from "@/lib/dashboard";
 import { NotificationBell } from "@/components/NotificationBell";
-
-const DASHBOARD_PATH: Record<string, string> = {
-  doctor: "/dashboard/doctor",
-  admin: "/dashboard/admin",
-};
 
 export function Nav() {
   const { user, loading, logout } = useAuth();
@@ -33,7 +29,7 @@ export function Nav() {
           {loading ? null : user ? (
             <>
               <Link
-                href={DASHBOARD_PATH[user.role] ?? "/dashboard/patient"}
+                href={dashboardPathForRole(user.role)}
                 className="text-slate-600 hover:text-slate-900"
               >
                 Dashboard

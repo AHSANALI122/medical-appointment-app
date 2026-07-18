@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { dashboardPathForRole } from "@/lib/dashboard";
 import type { UserPublic } from "@/lib/types";
 
 export default function LoginPage() {
@@ -33,7 +34,7 @@ function LoginForm() {
       const user = await api.post<UserPublic>("/api/v1/auth/login", { email, password });
       await refresh();
       const next = searchParams.get("next");
-      router.push(next ?? (user.role === "doctor" ? "/dashboard/doctor" : "/dashboard/patient"));
+      router.push(next ?? dashboardPathForRole(user.role));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {
