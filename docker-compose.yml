@@ -17,6 +17,7 @@ services:
       retries: 10
 
   backend:
+    image: medbook-backend:prod
     build:
       context: ./backend
     restart: unless-stopped
@@ -34,6 +35,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: medbook-frontend:prod
     build:
       context: ./frontend
       args:
