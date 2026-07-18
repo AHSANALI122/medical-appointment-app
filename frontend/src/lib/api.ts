@@ -2,6 +2,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+// Double-submit CSRF (F15). Same-origin we read the token from the csrf_token
+// cookie; cross-site (frontend on Vercel, API on Hugging Face) the browser
+// won't let us read the backend-domain cookie, so we capture the token from the
+// X-CSRF-Token response header instead — the backend sets it on every auth
+// response and on GET /api/v1/auth/csrf. The cookie still travels with the
+// request, so the backend's cookie-vs-header compare holds either way.
+let csrfToken: string | null = null;
+
 export class ApiError extends Error {
   errorCode: string;
   requestId: string;
@@ -32,8 +40,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // cookie alongside the session cookies; mutating requests must echo it
   // back in this header, or the CSRFMiddleware rejects them with 403.
   if (MUTATING_METHODS.has(method)) {
-    const csrfToken = readCookie("csrf_token");
-    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    const token = csrfToken ?? readCookie("csrf_token");
+    if (token) headers["X-CSRF-Token"] = token;
   }
 
   const res = await fetch(`${API_URL}${path}`, {
@@ -41,6 +49,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
     headers,
   });
+
+  // The backend echoes the CSRF token here on auth responses and GET /auth/csrf;
+  // stash it so cross-site mutating requests can send it back (see above).
+  const freshCsrf = res.headers.get("X-CSRF-Token");
+  if (freshCsrf) csrfToken = freshCsrf;
 
   if (res.status === 204) {
     return undefined as T;

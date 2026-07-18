@@ -1,3 +1,13 @@
+---
+title: MedBook API
+emoji: 🏥
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # MedBook Backend
 
 FastAPI backend for the MedBook medical appointment booking platform. See `/spec.md` and `/CLAUDE.md` at the repo root.

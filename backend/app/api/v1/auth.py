@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
 
-from app.api.deps import REFRESH_COOKIE_NAME, get_current_user
-from app.core.cookies import clear_auth_cookies, set_auth_cookies
+from app.api.deps import (
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    REFRESH_COOKIE_NAME,
+    get_current_user,
+)
+from app.core.cookies import clear_auth_cookies, issue_csrf_cookie, set_auth_cookies
 from app.core.db import get_session
 from app.core.exceptions import UnauthorizedError
 from app.core.rate_limit import AUTH_RATE_LIMIT, rate_limit
@@ -36,7 +41,9 @@ def register_patient(
         phone=body.phone,
     )
     _, access_token, refresh_token = auth_service.login(session, email=body.email, password=body.password)
-    set_auth_cookies(response, access_token=access_token, refresh_token=refresh_token)
+    response.headers[CSRF_HEADER_NAME] = set_auth_cookies(
+        response, access_token=access_token, refresh_token=refresh_token
+    )
     return UserPublic.model_validate(user, from_attributes=True)
 
 
@@ -59,7 +66,9 @@ def register_doctor(
         consultation_fee=body.consultation_fee,
     )
     _, access_token, refresh_token = auth_service.login(session, email=body.email, password=body.password)
-    set_auth_cookies(response, access_token=access_token, refresh_token=refresh_token)
+    response.headers[CSRF_HEADER_NAME] = set_auth_cookies(
+        response, access_token=access_token, refresh_token=refresh_token
+    )
     return DoctorRegisterResponse(
         user=UserPublic.model_validate(user, from_attributes=True),
         verification_status=doctor_profile.verification_status,
@@ -73,7 +82,9 @@ def login(
     session: Session = Depends(get_session),
 ) -> UserPublic:
     user, access_token, refresh_token = auth_service.login(session, email=body.email, password=body.password)
-    set_auth_cookies(response, access_token=access_token, refresh_token=refresh_token)
+    response.headers[CSRF_HEADER_NAME] = set_auth_cookies(
+        response, access_token=access_token, refresh_token=refresh_token
+    )
     return UserPublic.model_validate(user, from_attributes=True)
 
 
@@ -88,7 +99,9 @@ def refresh(
         raise UnauthorizedError("no refresh token")
 
     user, access_token, new_refresh_token = auth_service.refresh_session(session, refresh_token=refresh_token)
-    set_auth_cookies(response, access_token=access_token, refresh_token=new_refresh_token)
+    response.headers[CSRF_HEADER_NAME] = set_auth_cookies(
+        response, access_token=access_token, refresh_token=new_refresh_token
+    )
     return UserPublic.model_validate(user, from_attributes=True)
 
 
@@ -102,6 +115,20 @@ def logout(
     if refresh_token:
         auth_service.revoke_refresh_token(session, refresh_token=refresh_token)
     clear_auth_cookies(response)
+
+
+@router.get("/csrf")
+def csrf(request: Request, response: Response) -> dict[str, str]:
+    """Hand the double-submit CSRF token to the (cross-site) frontend.
+
+    On a fresh page load the Vercel frontend has no token in memory and can't
+    read the backend-domain cookie via document.cookie, so it calls this to
+    re-learn the value before making any mutating request. Returns the token in
+    the body and the X-CSRF-Token header; issues a cookie if none exists yet.
+    """
+    token = issue_csrf_cookie(request.cookies.get(CSRF_COOKIE_NAME), response)
+    response.headers[CSRF_HEADER_NAME] = token
+    return {"csrf_token": token}
 
 
 @router.get("/me", response_model=UserPublic)

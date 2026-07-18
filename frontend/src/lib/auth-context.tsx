@@ -38,6 +38,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Prime the double-submit CSRF token so cross-site mutating requests (e.g.
+    // logout) have it after a fresh page load — api.ts captures the token from
+    // this response's X-CSRF-Token header. Fire-and-forget; failures are benign.
+    api.get("/api/v1/auth/csrf").catch(() => {});
     refresh();
   }, [refresh]);
 

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlmodel import Session
 
+from app.api.deps import CSRF_HEADER_NAME
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.csrf import CSRFMiddleware
@@ -140,9 +141,15 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
+    # Vercel preview deploys get per-branch URLs (medbook-git-*.vercel.app), so
+    # allow any *.vercel.app in addition to the pinned production origin.
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The frontend lives on a different site (Vercel) than the API, so it can't
+    # read the double-submit CSRF cookie; it reads this header instead (F15).
+    expose_headers=[CSRF_HEADER_NAME],
 )
 
 

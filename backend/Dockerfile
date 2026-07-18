@@ -52,8 +52,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER app
 EXPOSE 8000
 
-# Container-level healthcheck hitting the app's own /health endpoint.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# Container-level healthcheck hitting the app's own /health endpoint. The
+# start-period covers `alembic upgrade head` running before uvicorn binds.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run via `sh` so the entrypoint works regardless of the file's exec bit (Windows
+# checkouts don't preserve it). start.sh migrates, then execs uvicorn.
+CMD ["sh", "/app/start.sh"]

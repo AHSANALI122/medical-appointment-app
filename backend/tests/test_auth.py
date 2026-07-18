@@ -45,6 +45,30 @@ def test_login_wrong_password_rejected(client):
     assert resp.json()["error_code"] == "unauthorized"
 
 
+def test_login_exposes_csrf_token_in_header(client):
+    """Cross-site frontends (Vercel) can't read the backend-domain csrf cookie,
+    so auth responses must echo the token in the X-CSRF-Token header."""
+    client.post(
+        "/api/v1/auth/register/patient",
+        json={"email": "csrfhdr@example.com", "password": "password123", "full_name": "Csrf"},
+    )
+    resp = client.post(
+        "/api/v1/auth/login", json={"email": "csrfhdr@example.com", "password": "password123"}
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("X-CSRF-Token")
+    # The header value matches the cookie the double-submit check compares against.
+    assert resp.headers["X-CSRF-Token"] == resp.cookies.get("csrf_token")
+
+
+def test_csrf_endpoint_returns_token(client):
+    resp = client.get("/api/v1/auth/csrf")
+    assert resp.status_code == 200
+    token = resp.json()["csrf_token"]
+    assert token
+    assert resp.headers.get("X-CSRF-Token") == token
+
+
 def test_me_requires_authentication(client):
     resp = client.get("/api/v1/auth/me")
     assert resp.status_code == 401
