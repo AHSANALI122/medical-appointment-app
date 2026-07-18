@@ -20,21 +20,34 @@ export default function AdminDashboardPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [statsRes, doctorsRes, reviewsRes] = await Promise.all([
-      api.get<PlatformStatsRead>("/api/v1/admin/stats"),
-      api.get<Page<DoctorVerificationQueueItem>>("/api/v1/admin/doctors/pending?page=1&page_size=50"),
-      api.get<Page<ReviewRead>>("/api/v1/admin/reviews/pending?page=1&page_size=50"),
-    ]);
-    setStats(statsRes);
-    setPendingDoctors(doctorsRes.items);
-    setPendingReviews(reviewsRes.items);
-    setLoading(false);
+    // A single failing call must not leave the page stuck on "Loading…" — clear
+    // the spinner in `finally` and surface the error instead.
+    try {
+      const [statsRes, doctorsRes, reviewsRes] = await Promise.all([
+        api.get<PlatformStatsRead>("/api/v1/admin/stats"),
+        api.get<Page<DoctorVerificationQueueItem>>("/api/v1/admin/doctors/pending?page=1&page_size=50"),
+        api.get<Page<ReviewRead>>("/api/v1/admin/reviews/pending?page=1&page_size=50"),
+      ]);
+      setStats(statsRes);
+      setPendingDoctors(doctorsRes.items);
+      setPendingReviews(reviewsRes.items);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not load the admin dashboard.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!user || user.role !== "admin") return;
+    if (authLoading) return; // wait for auth to resolve before deciding
+    // Non-admins never call load(), so clear the spinner here — otherwise the
+    // page would hang on "Loading…" instead of showing the access message.
+    if (!user || user.role !== "admin") {
+      setLoading(false);
+      return;
+    }
     load();
-  }, [user, load]);
+  }, [authLoading, user, load]);
 
   async function handleVerify(doctorId: string, status: "verified" | "rejected") {
     const reason = status === "rejected" ? window.prompt("Reason for rejection?") : null;
@@ -64,12 +77,18 @@ export default function AdminDashboardPage() {
     }
   }
 
-  if (authLoading || loading) {
+  if (authLoading) {
     return <p className="text-slate-500">Loading…</p>;
   }
 
+  // Check access before the data spinner: a non-admin never loads data, so it
+  // must not fall through to a "Loading…" state that never resolves.
   if (!user || user.role !== "admin") {
     return <p className="text-slate-500">You don&apos;t have access to this page.</p>;
+  }
+
+  if (loading) {
+    return <p className="text-slate-500">Loading…</p>;
   }
 
   return (
