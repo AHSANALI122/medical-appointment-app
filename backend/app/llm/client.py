@@ -5,7 +5,7 @@ calls (`get_llm_health`). F17 scope: the actual model objects the Agents SDK
 runs against (`get_agent_model`), and a lightweight resilience wrapper
 (`ResilientModelRouter`) satisfying the F22-style requirements CLAUDE.md's
 Agent Architecture section calls out — exponential backoff on 429 (max 3),
-a Gemini->OpenAI circuit breaker with a 60s cooldown, and a 30s run timeout
+a Gemini->OpenAI circuit breaker with a 60s cooldown, and a 60s run timeout
 with a graceful fallback. This does not attempt the rest of F22 (frontend
 error boundaries, job dead-letter queues) — those are out of scope here.
 """
@@ -25,7 +25,11 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-RUN_TIMEOUT_SECONDS = 30.0
+# A full triage turn is several round-trips (tool calls, handoffs), not one
+# completion — on Gemini's free tier that regularly runs past 30s, and every
+# overrun tripped the breaker and degraded the whole session for 60s. 60s is
+# the ceiling a patient will wait; past that the graceful message is better.
+RUN_TIMEOUT_SECONDS = 60.0
 CIRCUIT_BREAKER_COOLDOWN_SECONDS = 60.0
 _RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
 # Guardrail tripwires (F19: emergency detection, output scanning) are
@@ -34,6 +38,15 @@ _RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError)
 # Doing so would risk masking a real emergency behind a generic connectivity
 # error if the fallback provider then also failed for an unrelated reason.
 _GUARDRAIL_EXCEPTIONS = (InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered)
+
+
+def _describe(exc: BaseException) -> str:
+    """Log-friendly rendering of a provider failure. `str(exc)` alone is empty
+    for the two failures that matter most here — `asyncio.TimeoutError` (the
+    run timeout) and bare connection errors — which makes an outage look like
+    a provider that failed for no reason at all. Always lead with the type."""
+    detail = str(exc)
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 class LLMProvider(StrEnum):
@@ -46,15 +59,20 @@ class ProviderStatus(StrEnum):
     NOT_CONFIGURED = "not_configured"
 
 
-_PROVIDER_MODEL_STRINGS = {
-    # "gemini-flash-latest" is Google's own recommended alias for the
-    # current-generation flash model — a pinned version string (e.g.
-    # gemini-2.5-flash) can 404 for new API keys once Google deprecates it
-    # for new users while still serving existing callers, which is exactly
-    # what happened here; the alias is the future-proof choice.
-    LLMProvider.GEMINI: "gemini/gemini-flash-latest",
-    LLMProvider.OPENAI: "openai/gpt-4o-mini",
-}
+def _model_string(provider: LLMProvider) -> str:
+    """litellm model string for a provider, from env-overridable settings.
+
+    Both the pinned id and the "-latest" alias have failed on this project at
+    different times — the alias was chosen when `gemini-2.5-flash` 404'd for a
+    fresh key, then the alias itself started serving 45s+ timeouts and 503s
+    while the pinned id answered in ~1s. Neither is durably the right answer,
+    so the id is configuration (GEMINI_MODEL / OPENAI_MODEL) rather than a
+    constant to be re-litigated in code each time Google shifts capacity.
+    """
+    settings = get_settings()
+    if provider == LLMProvider.GEMINI:
+        return f"gemini/{settings.gemini_model}"
+    return f"openai/{settings.openai_model}"
 
 
 def _has_key(provider: LLMProvider) -> bool:
@@ -96,7 +114,7 @@ def get_agent_model(provider: LLMProvider):
     branching, just "try this Model, try that Model"."""
     from agents.extensions.models.litellm_model import LitellmModel
 
-    return LitellmModel(model=_PROVIDER_MODEL_STRINGS[provider], api_key=_api_key_for(provider))
+    return LitellmModel(model=_model_string(provider), api_key=_api_key_for(provider))
 
 
 def configure_tracing() -> None:
@@ -192,7 +210,16 @@ class ResilientModelRouter:
         doesn't need to import agent-specific types."""
         breaker = get_circuit_breaker()
 
-        if not breaker.is_open(self.primary):
+        # A provider with no API key is not "down", it was never wired up —
+        # calling it anyway spends a round trip to have litellm report
+        # "Missing credentials" as a *provider* error, which then opens that
+        # provider's breaker and buries the real cause (an unset env var) in a
+        # log line that reads like an outage. Check the key first and say so.
+        if not _has_key(self.primary):
+            logger.warning("llm.primary_not_configured", provider=self.primary.value)
+        elif breaker.is_open(self.primary):
+            logger.info("llm.primary_circuit_open", provider=self.primary.value)
+        else:
             try:
                 result = await self._retrying_primary(run_fn)
                 breaker.record_success(self.primary)
@@ -203,10 +230,19 @@ class ResilientModelRouter:
                 # guardrail correctly stopped the run. Propagate as-is.
                 raise
             except Exception as exc:  # noqa: BLE001 — any other primary failure falls through to fallback
-                logger.warning("llm.primary_failed", provider=self.primary.value, error=str(exc))
+                logger.warning("llm.primary_failed", provider=self.primary.value, error=_describe(exc))
                 breaker.record_failure(self.primary)
-        else:
-            logger.info("llm.primary_circuit_open", provider=self.primary.value)
+
+        if not _has_key(self.fallback):
+            logger.error(
+                "llm.fallback_not_configured",
+                provider=self.fallback.value,
+                primary=self.primary.value,
+            )
+            raise LLMProviderError(
+                f"{self.primary.value} is unavailable and no {self.fallback.value} "
+                "API key is configured to fall back to"
+            )
 
         try:
             result = await self._run_once(self.fallback, run_fn)
@@ -216,7 +252,7 @@ class ResilientModelRouter:
         except _GUARDRAIL_EXCEPTIONS:
             raise
         except Exception as exc:  # noqa: BLE001 — both providers exhausted
-            logger.error("llm.fallback_failed", provider=self.fallback.value, error=str(exc))
+            logger.error("llm.fallback_failed", provider=self.fallback.value, error=_describe(exc))
             breaker.record_failure(self.fallback)
             raise LLMProviderError("both LLM providers are currently unavailable") from exc
 

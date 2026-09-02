@@ -27,6 +27,11 @@ from app.services.llm_usage_service import BudgetStatus
 
 logger = get_logger(__name__)
 
+# Messages of context replayed to the agent each turn (user + assistant), i.e.
+# roughly the last ten exchanges — enough for "book that one" to resolve, far
+# short of a whole session's transcript.
+HISTORY_TURN_LIMIT = 20
+
 LLM_UNAVAILABLE_MESSAGE = (
     "I'm having trouble connecting right now. Please try again in a moment, "
     "or use the search page to book directly — that always works even when "
@@ -120,8 +125,18 @@ async def run_agent_turn(
         logger.warning("agent.budget_exceeded_disabled", session_id=str(agent_session.id))
         return AgentTurnResult(reply=AGENTS_DISABLED_MESSAGE, draft_booking_id=None, emergency=False)
 
+    # Only the recent tail of the conversation is replayed. Sending the whole
+    # session grew the prompt (and the turn's latency) without bound as a chat
+    # went on, and `list_messages` writes an audit row per message it returns,
+    # so an unbounded read also meant an unbounded write on every single turn.
+    _, total_messages = agent_session_service.list_messages(
+        session, agent_session=agent_session, offset=0, limit=0
+    )
     history, _ = agent_session_service.list_messages(
-        session, agent_session=agent_session, offset=0, limit=10_000
+        session,
+        agent_session=agent_session,
+        offset=max(0, total_messages - HISTORY_TURN_LIMIT),
+        limit=HISTORY_TURN_LIMIT,
     )
     input_items = agent_session_service.history_as_text(history) + [
         {"role": "user", "content": user_message}

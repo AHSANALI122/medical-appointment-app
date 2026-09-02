@@ -26,7 +26,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
+      {/* Browser extensions inject their own attributes onto <body> before
+          React hydrates (an ad-blocker/coupon extension adding data-cjcrx, for
+          one), which React reports as a hydration mismatch it "won't patch up".
+          Nothing server-rendered here is non-deterministic, so the warning is
+          purely about markup we don't control on a visitor's machine. Scoped to
+          this element's own attributes — children still hydrate strictly. */}
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-50 text-slate-900">
         <AuthProvider>
           <Nav />
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>

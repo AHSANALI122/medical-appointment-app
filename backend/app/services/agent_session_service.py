@@ -9,22 +9,79 @@ import uuid
 
 from sqlmodel import Session, select
 
+from app.core.encryption import DecryptionError
 from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.logging import get_logger
 from app.core.timezone import now_utc
 from app.models.agent import AgentMessage, AgentSession
 from app.models.enums import AgentRole
 from app.models.user import PatientProfile
 from app.services import audit_service
 
+logger = get_logger(__name__)
+
+
+def _is_readable(session: Session, agent_session: AgentSession) -> bool:
+    """Whether this session's transcript can still be decrypted.
+
+    A session whose messages were written under a previous ENCRYPTION_KEY is
+    unreadable forever — Fernet gives no way back without the original key.
+    Without this probe the first history load raises out of the ORM's row
+    hydration and 500s the endpoint, which takes the whole assistant down
+    (the panel never gets a session id, so every send fails too) over old
+    messages nobody can read anyway."""
+    try:
+        session.exec(
+            select(AgentMessage).where(AgentMessage.session_id == agent_session.id).limit(1)
+        ).first()
+    except DecryptionError:
+        return False
+    return True
+
+
+def _self_profile_id(session: Session, user_id: uuid.UUID) -> uuid.UUID | None:
+    """The user's own 'self' profile — the same default the manual booking
+    flow uses when no explicit profile is given (api/deps.resolve_self_patient_
+    profile). Resolved from the JWT-derived user_id, never from anything the
+    LLM produced, per CLAUDE.md rule 8."""
+    profile = session.exec(
+        select(PatientProfile).where(
+            PatientProfile.user_id == user_id, PatientProfile.relationship_label == "self"
+        )
+    ).first()
+    return profile.id if profile is not None else None
+
 
 def get_or_create_session(session: Session, *, user_id: uuid.UUID) -> AgentSession:
     existing = session.exec(
-        select(AgentSession).where(AgentSession.user_id == user_id)
+        select(AgentSession)
+        .where(AgentSession.user_id == user_id)
+        .order_by(AgentSession.last_activity_at.desc())
     ).first()
     if existing is not None:
-        return existing
+        if _is_readable(session, existing):
+            # A session left without an active profile can never book: every
+            # create_draft_booking_tool call fails "no active patient profile"
+            # while the agent, seeing only a tool error, tells the patient it
+            # held a slot it never held. Nothing in the chat UI sets this, so
+            # sessions created before this default existed need backfilling.
+            if existing.active_patient_profile_id is None:
+                existing.active_patient_profile_id = _self_profile_id(session, user_id)
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+            return existing
+        # Roll over to a fresh session rather than deleting anything: the old
+        # rows stay on disk, still decryptable if the original key turns up.
+        logger.warning(
+            "agent_session.unreadable_rolled_over",
+            user_id=str(user_id),
+            stale_session_id=str(existing.id),
+        )
 
-    agent_session = AgentSession(user_id=user_id)
+    agent_session = AgentSession(
+        user_id=user_id, active_patient_profile_id=_self_profile_id(session, user_id)
+    )
     session.add(agent_session)
     session.commit()
     session.refresh(agent_session)

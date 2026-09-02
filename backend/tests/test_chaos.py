@@ -28,9 +28,21 @@ def _api_connection_error() -> APIConnectionError:
     return APIConnectionError(request=httpx.Request("POST", "https://example.invalid"))
 
 
+@pytest.fixture
+def both_providers_configured(monkeypatch):
+    """This suite's scenario is "both providers are configured and both are
+    dying mid-run" — distinct from "a provider was never given an API key",
+    which the router now short-circuits before making a call. Pin key presence
+    on so the scenario under test is the one named, whatever keys happen to be
+    in the .env of the machine running the suite."""
+    import app.llm.client as llm_client
+
+    monkeypatch.setattr(llm_client, "_has_key", lambda provider: True)
+
+
 class TestLLMProviderKilledMidRun:
     async def test_both_providers_down_returns_graceful_message_not_exception(
-        self, monkeypatch, session, patient_user, patient_profile
+        self, monkeypatch, session, patient_user, patient_profile, both_providers_configured
     ):
         import app.llm.client as llm_client
         from app.agents.runner import LLM_UNAVAILABLE_MESSAGE, run_agent_turn
@@ -64,7 +76,8 @@ class TestLLMProviderKilledMidRun:
         llm_client.get_circuit_breaker().reset()
 
     async def test_manual_booking_flow_unaffected_while_llm_is_down(
-        self, monkeypatch, session, patient_profile, verified_doctor, clinic_location
+        self, monkeypatch, session, patient_profile, verified_doctor, clinic_location,
+        both_providers_configured,
     ):
         import app.llm.client as llm_client
 

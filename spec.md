@@ -175,7 +175,7 @@ draft ──(patient tap ≤10 min)──▶ pending ──(doctor accepts)─�
 
 ### F22 — Error Handling & Resilience
 - **Backend**: global exception handler (no stack leaks), structured errors `{error_code, message, request_id}`, custom exceptions (`SlotUnavailableError`, `BookingConflictError`, `PolicyViolationError`, `LLMProviderError`), request-ID middleware linked to LangSmith traces
-- **LLM layer**: exponential backoff on 429 (max 3), Gemini→OpenAI circuit breaker (60s cooldown), 30s agent timeout → graceful message + manual booking flow always remains usable
+- **LLM layer**: exponential backoff on 429 (max 3), Gemini→OpenAI circuit breaker (60s cooldown), 60s agent timeout → graceful message + manual booking flow always remains usable
 - **Booking paths**: transactions with rollback; idempotency keys on booking creation; **conflict handling via the F3 unique constraint** (v1 fix: removed impossible version-column locking)
 - **Frontend**: route-level error boundaries, retry UI for flaky networks
 - **Jobs**: dead-letter queue for failed reminders; alert on repeat failures

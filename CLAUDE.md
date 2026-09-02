@@ -47,7 +47,7 @@ CLAUDE.md          this file
 - **Emergency guardrail (two layers)**: keyword fast-path (chest pain, seene mein dard, saans, behosh, bleeding...) + LLM classifier. Either trips → halt flow, show 1122 message. Emergency recall target ≥99%.
 - Output guardrail scans responses for drug names/dosages/diagnosis language before rendering.
 - FAQ Agent uses structured DB tools for doctor/fee data (exact answers), RAG only over static policy/help markdown.
-- LLM resilience: exponential backoff on 429 (max 3), Gemini→OpenAI circuit breaker (60s cooldown), 30s run timeout with graceful fallback message. Manual booking flow must always work even if agents are down.
+- LLM resilience: exponential backoff on 429 (max 3), Gemini→OpenAI circuit breaker (60s cooldown), 60s run timeout with graceful fallback message. Manual booking flow must always work even if agents are down.
 
 ## Language & UX Notes
 - Patients write in Roman Urdu / Urdu / English — agents must handle all three. Test triage with Roman Urdu inputs ("pait mein dard", "dant mein takleef").

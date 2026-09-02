@@ -35,6 +35,13 @@ def fake_llm(monkeypatch):
 
     from tests.agents.fake_model import FakeModel
 
+    # The router refuses to call a provider with no API key (that is a config
+    # mistake, not an outage — see ResilientModelRouter.run). A scripted model
+    # needs no key at all, so report both providers as configured; otherwise
+    # every agent test would depend on whether the machine running it happens
+    # to have live keys in .env, and would fail outright in CI.
+    monkeypatch.setattr(llm_client, "_has_key", lambda provider: True)
+
     def _install(responses):
         model = FakeModel(responses)
         monkeypatch.setattr(llm_client, "get_agent_model", lambda provider: model)

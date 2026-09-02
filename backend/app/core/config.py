@@ -26,6 +26,11 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     openai_api_key: str = ""
+    # Model ids are env-overridable on purpose: Google rotates which aliases
+    # serve which keys, and a model that goes slow or starts 404-ing for new
+    # keys must be swappable in .env without a code change or redeploy.
+    gemini_model: str = "gemini-3.5-flash-lite"
+    openai_model: str = "gpt-4o-mini"
     llm_primary: str = "gemini"
     llm_fallback: str = "openai"
     llm_daily_token_budget: int = 200_000

@@ -5,7 +5,10 @@ these (mocked per CLAUDE.md's 'mock all LLM calls in unit tests')."""
 
 from dataclasses import dataclass
 
+import pytest
+
 import app.llm.client as llm_client
+from app.core.exceptions import LLMProviderError
 
 
 @dataclass
@@ -66,3 +69,54 @@ class TestGetLLMHealth:
         assert health["primary_status"] == "configured"
         assert health["fallback"] == "openai"
         assert health["fallback_status"] == "not_configured"
+
+
+class TestUnconfiguredProvidersAreNotCalled:
+    """A provider with no API key is a misconfiguration, not an outage. Calling
+    it anyway spends a round trip to have litellm answer 'Missing credentials',
+    which then opens that provider's breaker and makes an unset env var read as
+    a provider incident in the logs."""
+
+    async def test_unconfigured_fallback_is_not_called_when_primary_fails(self, monkeypatch):
+        monkeypatch.setattr(
+            llm_client, "get_settings", lambda: _FakeSettings(gemini_api_key="gk", openai_api_key="")
+        )
+        llm_client.get_circuit_breaker().reset()
+
+        called: list[str] = []
+
+        def _fake_model(provider):
+            called.append(provider.value)
+            raise RuntimeError("primary is down")
+
+        monkeypatch.setattr(llm_client, "get_agent_model", _fake_model)
+
+        with pytest.raises(LLMProviderError):
+            await llm_client.get_resilient_router().run(lambda model: model)
+
+        assert "openai" not in called
+        assert called == ["gemini"]  # tried once, then stopped — no keyless fallback attempt
+        llm_client.get_circuit_breaker().reset()
+
+    async def test_unconfigured_primary_is_skipped_in_favour_of_the_fallback(self, monkeypatch):
+        monkeypatch.setattr(
+            llm_client, "get_settings", lambda: _FakeSettings(gemini_api_key="", openai_api_key="ok")
+        )
+        llm_client.get_circuit_breaker().reset()
+
+        called: list[str] = []
+
+        def _fake_model(provider):
+            called.append(provider.value)
+            return "model"
+
+        monkeypatch.setattr(llm_client, "get_agent_model", _fake_model)
+
+        async def _run_fn(model):
+            return f"answered-by-{model}"
+
+        result = await llm_client.get_resilient_router().run(_run_fn)
+
+        assert result == "answered-by-model"
+        assert called == ["openai"]
+        llm_client.get_circuit_breaker().reset()

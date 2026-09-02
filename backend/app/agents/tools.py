@@ -17,7 +17,7 @@ from sqlmodel import select
 from app.agents.context import MedBookAgentContext
 from app.agents.policy_docs import search_policy_docs
 from app.core.exceptions import MedBookError
-from app.core.timezone import now_utc
+from app.core.timezone import now_local, now_utc
 from app.models.booking import Booking
 from app.models.doctor import DoctorProfile
 from app.models.enums import BookingSource, BookingStatus
@@ -73,6 +73,16 @@ def search_doctors_tool(
         offset=0,
         limit=10,
     )
+    # Clinic locations ship with the search result rather than needing a
+    # second lookup. Both of the tools this one feeds — get_available_slots
+    # and create_draft_booking — take a clinic_location_id, and the booking
+    # agent is told never to invent one, so without the ids here it had no
+    # legal way to reach a slot list at all: every booking attempt died at
+    # "I'm having trouble retrieving the available time slots." Batched
+    # (F28) so ten results stay one query, not ten.
+    locations_by_doctor = doctor_service.list_clinic_locations_for_doctors(
+        session, [doctor.id for doctor in doctors]
+    )
     results = []
     for doctor in doctors:
         user = session.get(User, doctor.user_id)
@@ -81,9 +91,21 @@ def search_doctors_tool(
                 "doctor_id": str(doctor.id),
                 "name": user.full_name if user else None,
                 "fee": doctor.consultation_fee,
+                "clinic_locations": [
+                    {
+                        "clinic_location_id": str(loc.id),
+                        "name": loc.name,
+                        "address": loc.address,
+                        "city": loc.city,
+                    }
+                    for loc in locations_by_doctor.get(doctor.id, [])
+                ],
             }
         )
     return json.dumps({"total": total, "results": results})
+
+
+SLOT_SEARCH_DEFAULT_DAYS = 14
 
 
 @function_tool
@@ -91,18 +113,38 @@ def get_available_slots_tool(
     ctx: RunContextWrapper[MedBookAgentContext],
     doctor_id: str,
     clinic_location_id: str,
-    from_date: str,
-    to_date: str,
+    from_date: str | None,
+    to_date: str | None,
 ) -> str:
     """List open slots for a doctor at a clinic between two dates
-    (YYYY-MM-DD, Asia/Karachi local dates)."""
+    (YYYY-MM-DD, Asia/Karachi local dates). Pass null for either date to
+    search from today for the next two weeks — prefer that over guessing a
+    date, and never invent one."""
+    # The dates default here rather than being required, because a model has
+    # no reliable idea what today is: asked for "the earliest slot" it would
+    # pick a plausible-looking window from its training era, get an empty
+    # list back for a doctor with slots today, and tell the patient there is
+    # no availability. The one caller who knows the real date is this
+    # process. `from_date` also floors at today — a past window is always a
+    # model mistake, and returning [] for it reads as "fully booked".
+    today = now_local().date()
+    try:
+        resolved_from = date.fromisoformat(from_date) if from_date else today
+        resolved_to = date.fromisoformat(to_date) if to_date else None
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+
+    resolved_from = max(resolved_from, today)
+    if resolved_to is None or resolved_to < resolved_from:
+        resolved_to = resolved_from + timedelta(days=SLOT_SEARCH_DEFAULT_DAYS)
+
     try:
         slots = slot_service.generate_available_slots(
             ctx.context.session,
             doctor_id=uuid.UUID(doctor_id),
             clinic_location_id=uuid.UUID(clinic_location_id),
-            from_date=date.fromisoformat(from_date),
-            to_date=date.fromisoformat(to_date),
+            from_date=resolved_from,
+            to_date=resolved_to,
         )
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
