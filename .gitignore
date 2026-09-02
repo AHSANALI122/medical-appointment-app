@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+# Hand-made backups of .env carry the same live secrets the real file does.
+.env.bak
 
 # python
 __pycache__/
