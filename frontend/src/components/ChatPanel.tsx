@@ -46,9 +46,12 @@ export function ChatPanel() {
     init();
   }, [user, init]);
 
+  // `sending` is a dependency too, not just `messages`: the pending bubble
+  // appears and disappears on that flag alone, and without it the spinner
+  // can render just below the fold on a full transcript.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sending]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -99,6 +102,7 @@ export function ChatPanel() {
           {messages.map((m) => (
             <ChatBubble key={m.id} message={m} />
           ))}
+          {sending && <PendingBubble />}
         </div>
         <div ref={bottomRef} />
       </div>
@@ -118,9 +122,48 @@ export function ChatPanel() {
           disabled={!sessionId || sending || !input.trim()}
           className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-60"
         >
-          {sending ? "Sending…" : "Send"}
+          {sending ? (
+            <span className="flex items-center gap-1.5">
+              <Spinner className="h-3.5 w-3.5" />
+              Sending…
+            </span>
+          ) : (
+            "Send"
+          )}
         </button>
       </form>
+    </div>
+  );
+}
+
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M12 2a10 10 0 0 1 10 10h-4a6 6 0 0 0-6-6V2z"
+      />
+    </svg>
+  );
+}
+
+/** An agent turn is several model round trips and routinely takes 20-50s, so
+ * the panel has to show it is still working — without this the transcript sat
+ * unchanged long enough to read as a dropped message. Sits where the reply
+ * will land, so nothing shifts when the real bubble replaces it. */
+function PendingBubble() {
+  return (
+    <div className="flex justify-start">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex max-w-[80%] items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-500"
+      >
+        <Spinner className="h-4 w-4" />
+        <span>Thinking…</span>
+      </div>
     </div>
   );
 }
@@ -189,7 +232,14 @@ function DraftBookingCard({ booking }: { booking: BookingRead }) {
           disabled={confirming}
           className="mt-2 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-60"
         >
-          {confirming ? "Confirming…" : "Confirm appointment"}
+          {confirming ? (
+            <span className="flex items-center gap-1.5">
+              <Spinner className="h-3 w-3" />
+              Confirming…
+            </span>
+          ) : (
+            "Confirm appointment"
+          )}
         </button>
       )}
       {expired && <p className="mt-1 text-xs text-slate-500">This hold expired — ask me to find another slot.</p>}
